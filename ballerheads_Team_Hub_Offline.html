@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ballerheads Team Hub</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load React, ReactDOM, and Babel for JSX transpilation -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* Custom scrollbar for better aesthetics */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937; /* Gray-800 */
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #f97316; /* Orange-600 */
+            border-radius: 4px;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+    <div id="root">
+        <!-- React component will render here -->
+        <div class="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+            <svg class="w-8 h-8 animate-spin text-orange-500 mb-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <p>Initializing dependencies...</p>
+        </div>
+    </div>
+    
+    <!-- 
+        NOTE: When saving and running locally, Firebase configuration and 
+        authentication tokens are typically unavailable. We are providing 
+        mock/empty data here to prevent errors, but you will need 
+        to ensure your local environment can access Firebase if 
+        you intend to use the live database features. 
+    -->
+    <script>
+        // These variables are usually provided by the hosting environment. 
+        // We initialize them to empty/default values for local testing.
+        window.__app_id = 'default-ballerheads-app-id';
+        window.__firebase_config = '{}'; 
+        window.__initial_auth_token = undefined;
+    </script>
+    
+    <!-- Use Module Imports for Firebase and expose utilities -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose all necessary functions globally for the subsequent Babel script to use
+        window.firebase_utils = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
+            getFirestore, doc, setDoc, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc
+        };
+
+        // If the React application bootstrap function is ready, call it now to start the app.
+        if (window.startReactApp) {
+            window.startReactApp();
+        }
+    </script>
+
+
+    <!-- The main application code using Babel for JSX -->
+    <script type="text/babel">
+
+        const { useState, useEffect, useCallback, useMemo, useRef } = React;
+        
+        // Define a global function to start the React app, which will be called by the module script
+        window.startReactApp = function() {
+            
+            const utils = window.firebase_utils;
+
+            if (!utils) {
+                console.error("Firebase utilities not yet loaded.");
+                return;
+            }
+
+            // Destructure functions from the utility object
+            const { 
+                initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
+                getFirestore, doc, setDoc, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc 
+            } = utils;
+            
+            
+            // --- Component-Scoped SVG Icon Definitions (GUARANTEED TO RENDER) ---
+            
+            // Base Icon Component for consistent styling
+            const BaseIcon = ({ children, className = 'w-6 h-6' }) => (
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={className}
+                >
+                    {children}
+                </svg>
+            );
+
+            // Specific Icon Components
+            const Users = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </BaseIcon>
+            );
+            
+            const Calendar = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>
+                </BaseIcon>
+            );
+            
+            const MessageSquare = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </BaseIcon>
+            );
+
+            const Video = (props) => (
+                <BaseIcon {...props}>
+                    <path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="5" width="14" height="14" rx="2" ry="2"/>
+                </BaseIcon>
+            );
+            
+            // Simplified Gear/Settings Icon
+            const Settings = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.44a2 2 0 0 1-2 2H4.44a2 2 0 0 0-2 2v.44a2 2 0 0 1-2 2H.22a2 2 0 0 0-2 2v.44a2 2 0 0 1-2 2H4.44a2 2 0 0 0 2 2v.44a2 2 0 0 1 2 2h.44a2 2 0 0 0 2 2v.44a2 2 0 0 1 2 2h.44a2 2 0 0 0 2-2v-.44a2 2 0 0 1 2-2h.44a2 2 0 0 0 2-2v-.44a2 2 0 0 1 2-2h.44a2 2 0 0 0 2-2v-.44a2 2 0 0 1-2-2h-.44a2 2 0 0 0-2-2v-.44a2 2 0 0 1-2-2h-.44a2 2 0 0 0-2-2v-.44a2 2 0 0 1-2-2z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </BaseIcon>
+            );
+
+            const Loader2 = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </BaseIcon>
+            );
+            
+            const Send = (props) => (
+                <BaseIcon {...props}>
+                    <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
+                </BaseIcon>
+            );
+            
+            const Trash2 = (props) => (
+                <BaseIcon {...props}>
+                    <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>
+                </BaseIcon>
+            );
+            
+            // --------------------------------------------------------------------------
+
+            // --- Global Variable Initialization ---
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-ballerheads-app-id';
+            // Use empty config/token if not provided by the environment
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+
+            // --- Firebase Context and Constants ---
+            let app, db, auth;
+
+            // NOTE: For demonstration, we use localStorage to remember the Admin user ID across sessions.
+            const ADMIN_ID_KEY = 'ballerheads_admin_id'; 
+
+            // Firestore Paths (Using Public Data Rules)
+            const COLLECTIONS = {
+                PLAYERS: 'players',
+                SCHEDULE: 'schedule',
+                CHAT: 'chat',
+            };
+
+            // --- Utility Functions ---
+
+            // Function to safely retry a Firebase operation
+            const withRetry = async (fn, maxRetries = 3, delay = 1000) => {
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        return await fn();
+                    } catch (error) {
+                        console.error(`Attempt ${i + 1} failed:`, error.message);
+                        if (i === maxRetries - 1) throw error;
+                        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i))); // Exponential backoff
+                    }
+                }
+            };
+
+            // Converts Firestore timestamp to readable format
+            const formatTimestamp = (timestamp) => {
+                if (!timestamp) return '...';
+                // Check if it's a Firestore Timestamp object
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            };
+
+
+            // --- Component: NavItem ---
+            const NavItem = ({ icon: Icon, label, isActive, onClick }) => (
+                <button
+                    onClick={onClick}
+                    className={`flex flex-col items-center justify-center p-1 flex-1 text-xs transition-colors ${
+                        isActive
+                            ? 'text-orange-500 font-bold'
+                            : 'text-gray-400 hover:text-orange-400'
+                    }`}
+                >
+                    {/* Icon is now a reliable React Component */}
+                    <Icon className="w-5 h-5 mb-0.5" />
+                    {label}
+                </button>
+            );
+
+            // --- Component: Roster Item ---
+            const PlayerCard = ({ player, onEdit, isAdmin }) => (
+                <div className="bg-gray-800 p-4 rounded-xl shadow-lg mb-4 border-l-4 border-orange-500">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h3 className="text-xl font-extrabold text-white">
+                                #{player.number} {player.name}
+                            </h3>
+                            <p className="text-sm text-gray-400">
+                                <span className="font-semibold">Age:</span> {player.age || 'N/A'} | <span className="font-semibold">Grade:</span> {player.grade || 'N/A'}
+                            </p>
+                            {player.socialMedia && (
+                                <a 
+                                    href={`https://instagram.com/${player.socialMedia}`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-orange-400 hover:text-orange-300 text-sm mt-1 inline-block"
+                                >
+                                    @{player.socialMedia}
+                                </a>
+                            )}
+                        </div>
+                        {isAdmin && (
+                            <button
+                                onClick={() => onEdit(player)}
+                                className="text-white bg-orange-600 hover:bg-orange-700 p-2 rounded-full transition-colors"
+                            >
+                                <Settings className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+
+            // --- Component: Schedule Item ---
+            const ScheduleCard = ({ item, onEdit, onDelete, isAdmin }) => (
+                <div className="bg-gray-800 p-4 rounded-xl shadow-lg mb-4 flex justify-between items-center border-l-4 border-white">
+                    <div>
+                        <h3 className="text-lg font-bold text-orange-500">{item.title}</h3>
+                        <p className="text-sm text-gray-300 mt-1">
+                            <span className="font-semibold">Date:</span> {item.date} at {item.time}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                            <span className="font-semibold">Location:</span> {item.location}
+                        </p>
+                    </div>
+                    {isAdmin && (
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={() => onEdit(item)}
+                                className="text-white bg-indigo-600 hover:bg-indigo-700 p-2 rounded-full transition-colors ml-4"
+                            >
+                                <Settings className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => onDelete(item.id)}
+                                className="text-white bg-red-600 hover:bg-red-700 p-2 rounded-full transition-colors"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+
+            // --- Component: Chat Message ---
+            const ChatMessage = ({ message, currentUserId }) => {
+                const isMe = message.userId === currentUserId;
+                const time = formatTimestamp(message.timestamp);
+
+                return (
+                    <div className={`flex mb-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-2xl shadow-md ${
+                            isMe
+                                ? 'bg-orange-600 text-white rounded-br-none'
+                                : 'bg-gray-700 text-white rounded-bl-none'
+                        }`}>
+                            {!isMe && <span className="text-xs font-bold block mb-1 text-orange-300">{message.userName}</span>}
+                            <p className="text-sm break-words">{message.text}</p>
+                            <span className={`text-xs block mt-1 ${isMe ? 'text-orange-200' : 'text-gray-400'}`}>{time}</span>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- App Component ---
+            const App = () => {
+                const [view, setView] = useState('roster');
+                const [roster, setRoster] = useState([]);
+                const [schedule, setSchedule] = useState([]);
+                const [messages, setMessages] = useState([]);
+                const [loading, setLoading] = useState(true);
+                const [dbInstances, setDbInstances] = useState({ db: null, auth: null });
+                const [userId, setUserId] = useState(null);
+                const [isAdmin, setIsAdmin] = useState(false);
+                const [showModal, setShowModal] = useState(false);
+                const [modalData, setModalData] = useState(null);
+                const [modalType, setModalType] = useState(''); // 'player' or 'schedule'
+
+                // --- Firebase Initialization and Authentication ---
+                useEffect(() => {
+                    try {
+                        if (Object.keys(firebaseConfig).length > 0) {
+                            app = initializeApp(firebaseConfig);
+                            db = getFirestore(app);
+                            auth = getAuth(app);
+                            setDbInstances({ db, auth });
+
+                            const unsubscribe = onAuthStateChanged(auth, (user) => {
+                                if (user) {
+                                    setUserId(user.uid);
+                                    
+                                    // Admin Check: Store and check the admin ID in localStorage
+                                    const storedAdminId = localStorage.getItem(ADMIN_ID_KEY);
+                                    
+                                    if (initialAuthToken || user.uid === storedAdminId) {
+                                        // If a custom token was used, or the current user matches the stored admin ID
+                                        setIsAdmin(true);
+                                    } else if (!storedAdminId) {
+                                        // If this is the first user (no admin stored), make them the demo admin
+                                        localStorage.setItem(ADMIN_ID_KEY, user.uid);
+                                        setIsAdmin(true);
+                                    } else {
+                                        setIsAdmin(false);
+                                    }
+                                    
+                                    // Only stop loading once a user is definitively authenticated
+                                    setLoading(false); 
+                                    
+                                } else if (dbInstances.auth) {
+                                    // If no user is logged in, attempt to sign in.
+                                    // onAuthStateChanged will fire again once sign-in is successful.
+                                    if (initialAuthToken) {
+                                        signInWithCustomToken(dbInstances.auth, initialAuthToken).catch(e => {
+                                            console.error("Custom Auth Token failed, falling back to anonymous.", e);
+                                            signInAnonymously(dbInstances.auth);
+                                        });
+                                    } else {
+                                        signInAnonymously(dbInstances.auth).catch(e => {
+                                            console.error("Anonymous sign-in failed.", e);
+                                            setLoading(false); // Stop loading if anonymous sign-in fails too
+                                        });
+                                    }
+                                }
+                            });
+
+                            // Initial authentication trigger to ensure onAuthStateChanged picks up a session immediately
+                            if (initialAuthToken) {
+                                signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                                    console.error("Initial Custom Auth Token failed, relying on onAuthStateChanged to retry/fallback.", e);
+                                });
+                            } else {
+                                // Try anonymous sign-in immediately if no token
+                                signInAnonymously(auth).catch(e => {
+                                    console.error("Initial Anonymous sign-in failed, relying on onAuthStateChanged.", e);
+                                });
+                            }
+
+
+                            return () => unsubscribe();
+                        } else {
+                            // If running locally without a Firebase config, we fake the ready state.
+                            // NOTE: CRUD operations will likely fail without a valid config/auth.
+                            setUserId(crypto.randomUUID()); 
+                            setIsAdmin(true); // Default to admin for local testing ease
+                            setLoading(false);
+                            console.warn("Running in local/offline mode. Firebase data features are disabled or will require a valid configuration.");
+                        }
+                    } catch (error) {
+                        console.error("Firebase initialization failed:", error);
+                        setLoading(false);
+                    }
+                }, [initialAuthToken, dbInstances.auth]); // Dependency on dbInstances.auth added for robustness
+
+                // Effect for Real-Time Data Listeners
+                useEffect(() => {
+                    // Ensure dbInstances.db and userId are fully set before attaching listeners
+                    if (!dbInstances.db || !userId) return;
+
+                    const playersRef = collection(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.PLAYERS}`);
+                    const scheduleRef = collection(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.SCHEDULE}`);
+                    // NOTE: We rely on client-side sorting to avoid index issues with orderBy().
+                    const chatRef = collection(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.CHAT}`);
+
+                    // Roster Listener
+                    const unsubscribeRoster = onSnapshot(playersRef, (snapshot) => {
+                        const players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        // Sort by number, then name
+                        players.sort((a, b) => (a.number || 999) - (b.number || 999) || (a.name || '').localeCompare(b.name || ''));
+                        setRoster(players);
+                    }, (error) => console.error("Roster snapshot error:", error));
+
+                    // Schedule Listener
+                    const unsubscribeSchedule = onSnapshot(scheduleRef, (snapshot) => {
+                        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        // Client-side sort by date
+                        setSchedule(items.sort((a, b) => new Date(a.date) - new Date(b.date)));
+                    }, (error) => console.error("Schedule snapshot error:", error));
+
+                    // Chat Listener
+                    const unsubscribeChat = onSnapshot(chatRef, (snapshot) => {
+                        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        // Client-side sort by timestamp
+                        setMessages(msgs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0)));
+                    }, (error) => console.error("Chat snapshot error:", error));
+
+                    // Clean up listeners on component unmount
+                    return () => {
+                        unsubscribeRoster();
+                        unsubscribeSchedule();
+                        unsubscribeChat();
+                    };
+
+                }, [dbInstances.db, userId]);
+
+
+                // --- Admin Action Handlers (CRUD) ---
+
+                // Handles both ADD and EDIT operations for Player and Schedule
+                const handleSaveItem = async (type, data) => {
+                    if (!isAdmin || !dbInstances.db) {
+                        console.warn("CRUD attempted in offline mode or by non-admin. Data is not saved.");
+                        alert("Data saved *locally* for testing, but won't sync to the cloud without a valid Firebase connection.");
+                        // Simulate local save for demo purposes if DB is null
+                        if (type === 'player') {
+                            const updatedRoster = data.id 
+                                ? roster.map(p => p.id === data.id ? data : p)
+                                : [...roster, { ...data, id: `local-${Date.now()}` }];
+                            setRoster(updatedRoster.sort((a, b) => (a.number || 999) - (b.number || 999) || (a.name || '').localeCompare(b.name || '')));
+                        } else {
+                            const updatedSchedule = data.id 
+                                ? schedule.map(s => s.id === data.id ? data : s)
+                                : [...schedule, { ...data, id: `local-${Date.now()}` }];
+                            setSchedule(updatedSchedule.sort((a, b) => new Date(a.date) - new Date(b.date)));
+                        }
+
+                        setShowModal(false);
+                        setModalData(null);
+                        setModalType('');
+                        return;
+                    }
+
+                    const collectionPath = `/artifacts/${appId}/public/data/${type === 'player' ? COLLECTIONS.PLAYERS : COLLECTIONS.SCHEDULE}`;
+                    const ref = collection(dbInstances.db, collectionPath);
+                    
+                    try {
+                        await withRetry(async () => {
+                            const saveData = { ...data };
+                            delete saveData.id; // Ensure we don't save the id field inside the document
+
+                            if (data.id) {
+                                // Update existing
+                                await setDoc(doc(ref, data.id), saveData, { merge: true });
+                            } else {
+                                // Add new
+                                await addDoc(ref, saveData);
+                            }
+                        });
+                        setShowModal(false);
+                        setModalData(null);
+                        setModalType('');
+                    } catch (error) {
+                        console.error(`Error saving ${type}:`, error);
+                    }
+                };
+
+                const handleDeleteSchedule = async (id) => {
+                    if (!isAdmin || !dbInstances.db) {
+                        if (window.confirm("Are you sure you want to delete this schedule item? (Local Only)")) {
+                            setSchedule(schedule.filter(s => s.id !== id));
+                        }
+                        return;
+                    }
+                    
+                    if (!window.confirm("Are you sure you want to delete this schedule item?")) return;
+
+                    try {
+                        const docRef = doc(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.SCHEDULE}`, id);
+                        await withRetry(() => deleteDoc(docRef));
+                    } catch (error) {
+                        console.error("Error deleting schedule item:", error);
+                    }
+                };
+
+                const handleDeletePlayer = async (id) => {
+                    if (!isAdmin || !dbInstances.db) {
+                        if (window.confirm("Are you sure you want to delete this player? (Local Only)")) {
+                            setRoster(roster.filter(p => p.id !== id));
+                        }
+                        return;
+                    }
+                    
+                    if (!window.confirm("Are you sure you want to delete this player?")) return;
+
+                    try {
+                        const docRef = doc(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.PLAYERS}`, id);
+                        await withRetry(() => deleteDoc(docRef));
+                    } catch (error) {
+                        console.error("Error deleting player:", error);
+                    }
+                };
+
+                // --- Chat Logic ---
+
+                const handleSendMessage = async (text) => {
+                    if (!dbInstances.db || !userId || !text.trim()) {
+                        console.warn("Chat attempted in offline mode. Message is not saved.");
+                        setMessageText('');
+                        alert("Message not sent. Chat requires a live Firebase connection.");
+                        return;
+                    }
+
+                    // Simple way to get a display name for the chat
+                    const userName = `User-${userId.substring(0, 4)}`;
+
+                    const message = {
+                        userId,
+                        userName,
+                        text: text.trim(),
+                        timestamp: serverTimestamp(),
+                    };
+
+                    try {
+                        const chatRef = collection(dbInstances.db, `/artifacts/${appId}/public/data/${COLLECTIONS.CHAT}`);
+                        await withRetry(() => addDoc(chatRef, message));
+                    } catch (error) {
+                        console.error("Error sending message:", error);
+                    }
+                };
+                
+                // --- Modal Handlers (omitted for brevity, assume they handle state correctly) ---
+
+                const openAddPlayerModal = () => {
+                    setModalType('player');
+                    setModalData({ name: '', age: 18, grade: '12th Grade', socialMedia: '', number: roster.length > 0 ? roster[roster.length - 1].number + 1 : 1 });
+                    setShowModal(true);
+                };
+
+                const openAddScheduleModal = () => {
+                    setModalType('schedule');
+                    setModalData({ title: '', date: new Date().toISOString().substring(0, 10), time: '18:00', location: '' });
+                    setShowModal(true);
+                };
+
+                const handleEditPlayer = (player) => {
+                    setModalType('player');
+                    setModalData(player);
+                    setShowModal(true);
+                };
+
+                const handleEditSchedule = (item) => {
+                    setModalType('schedule');
+                    setModalData(item);
+                    setShowModal(true);
+                };
+
+                // --- Sub-Component: Roster View ---
+                const RosterView = () => (
+                    <div className="p-4">
+                        <h2 className="text-3xl font-extrabold text-orange-500 mb-6">Team Roster</h2>
+                        
+                        {/* Display Add Button only if Admin, which opens the Modal */}
+                        {isAdmin && (
+                            <button
+                                onClick={openAddPlayerModal}
+                                className="w-full mb-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg transition-colors flex items-center justify-center"
+                            >
+                                <Users className="w-5 h-5 mr-2" /> Add Player
+                            </button>
+                        )}
+                        
+                        {roster.length === 0 ? (
+                            <p className="text-gray-400 italic text-center p-8">No players added yet. Admins can add players.</p>
+                        ) : (
+                            roster.map(player => (
+                                // PlayerCard now shows an edit button if the user is an admin
+                                <PlayerCard key={player.id} player={player} onEdit={handleEditPlayer} isAdmin={isAdmin} />
+                            ))
+                        )}
+                    </div>
+                );
+
+                // --- Sub-Component: Schedule View ---
+                const ScheduleView = () => (
+                    <div className="p-4">
+                        <h2 className="text-3xl font-extrabold text-orange-500 mb-6">Game & Practice Schedule</h2>
+                        
+                        {/* Display Add Button only if Admin, which opens the Modal */}
+                        {isAdmin && (
+                            <button
+                                onClick={openAddScheduleModal}
+                                className="w-full mb-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg transition-colors flex items-center justify-center"
+                            >
+                                <Calendar className="w-5 h-5 mr-2" /> Add Event
+                            </button>
+                        )}
+                        
+                        {schedule.length === 0 ? (
+                            <p className="text-gray-400 italic text-center p-8">Schedule is currently empty. Admins can add events.</p>
+                        ) : (
+                            schedule.map(item => (
+                                // ScheduleCard now shows Edit/Delete buttons if the user is an admin
+                                <ScheduleCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    onEdit={handleEditSchedule} 
+                                    onDelete={handleDeleteSchedule} 
+                                    isAdmin={isAdmin} 
+                                />
+                            ))
+                        )}
+                    </div>
+                );
+
+                // --- Sub-Component: Chat View ---
+                const ChatView = () => {
+                    const [messageText, setMessageText] = useState('');
+                    const messagesEndRef = useRef(null);
+
+                    const scrollToBottom = () => {
+                        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                    };
+
+                    // Scroll to bottom whenever messages are updated
+                    useEffect(scrollToBottom, [messages]);
+
+                    const handleSubmit = (e) => {
+                        e.preventDefault();
+                        handleSendMessage(messageText);
+                        setMessageText('');
+                    };
+
+                    return (
+                        <div className="flex flex-col h-full overflow-hidden">
+                            <div className="p-4">
+                                <h2 className="text-3xl font-extrabold text-orange-500">Team Chat</h2>
+                                <p className="text-sm text-gray-400 mt-1">
+                                    Your ID: <span className="font-mono text-xs">{userId || 'N/A'}</span>
+                                    {isAdmin && <span className="text-green-400 ml-2">(Admin)</span>}
+                                </p>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                                {messages.map(msg => (
+                                    <ChatMessage key={msg.id} message={msg} currentUserId={userId} />
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+                            <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700 bg-gray-900">
+                                <div className="flex space-x-3">
+                                    <input
+                                        type="text"
+                                        value={messageText}
+                                        onChange={(e) => setMessageText(e.target.value)}
+                                        placeholder="Type a message..."
+                                        className="flex-1 p-3 bg-gray-800 border border-gray-600 rounded-full text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={!messageText.trim()}
+                                        className="p-3 bg-orange-600 rounded-full text-white hover:bg-orange-700 disabled:bg-gray-500 transition-colors"
+                                    >
+                                        <Send className="w-5 h-5" />
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    );
+                };
+
+                // --- Sub-Component: Admin Panel (Management Center) ---
+                const AdminView = () => {
+                    // If not admin, show access denied message
+                    if (!isAdmin) {
+                        return (
+                            <div className="p-8 text-center">
+                                <Settings className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+                                <h2 className="text-2xl font-extrabold text-white">Access Denied</h2>
+                                <p className="text-gray-400 mt-2">This is the exclusive Back Office. Only the designated administrator can manage data.</p>
+                            </div>
+                        );
+                    }
+
+                    // Admin View with CRUD controls
+                    return (
+                        <div className="p-4">
+                            <h2 className="text-3xl font-extrabold text-orange-500 mb-6">Admin Back Office</h2>
+
+                            {/* Roster Management Section */}
+                            <div className="bg-gray-800 p-6 rounded-xl mb-6 shadow-xl">
+                                <h3 className="text-xl font-bold text-white mb-4 border-b border-gray-700 pb-2">Player Roster Management</h3>
+                                <button
+                                    onClick={openAddPlayerModal}
+                                    className="w-full mb-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-lg transition-colors flex items-center justify-center"
+                                >
+                                    <Users className="w-5 h-5 mr-2" /> Add New Player
+                                </button>
+                                
+                                <div className="max-h-64 overflow-y-auto space-y-3 p-2 bg-gray-700 rounded-lg">
+                                    {roster.length === 0 ? (
+                                        <p className="text-gray-500 text-sm text-center py-4">Roster is empty. Add players above.</p>
+                                    ) : (
+                                        roster.map(player => (
+                                            <div key={player.id} className="flex justify-between items-center bg-gray-600 p-3 rounded-md">
+                                                <span className="text-white text-sm font-medium">{player.name} <span className="text-orange-400">#{player.number}</span></span>
+                                                <div className="space-x-2">
+                                                    <button onClick={() => handleEditPlayer(player)} className="text-indigo-400 hover:text-indigo-300 font-semibold text-sm">Edit</button>
+                                                    <button onClick={() => handleDeletePlayer(player.id)} className="text-red-400 hover:text-red-300 font-semibold text-sm">Delete</button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Schedule Management Section */}
+                            <div className="bg-gray-800 p-6 rounded-xl shadow-xl">
+                                <h3 className="text-xl font-bold text-white mb-4 border-b border-gray-700 pb-2">Schedule & Event Management</h3>
+                                <button
+                                    onClick={openAddScheduleModal}
+                                    className="w-full mb-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-lg transition-colors flex items-center justify-center"
+                                >
+                                    <Calendar className="w-5 h-5 mr-2" /> Add New Event
+                                </button>
+                                <div className="max-h-64 overflow-y-auto space-y-3 p-2 bg-gray-700 rounded-lg">
+                                    {schedule.length === 0 ? (
+                                        <p className="text-gray-500 text-sm text-center py-4">Schedule is empty. Add events above.</p>
+                                    ) : (
+                                        schedule.map(item => (
+                                            <div key={item.id} className="flex justify-between items-center bg-gray-600 p-3 rounded-md">
+                                                <span className="text-white text-sm font-medium">{item.title} <span className="text-gray-400">({item.date})</span></span>
+                                                <div className="space-x-2">
+                                                    <button onClick={() => handleEditSchedule(item)} className="text-indigo-400 hover:text-indigo-300 font-semibold text-sm">Edit</button>
+                                                    <button onClick={() => handleDeleteSchedule(item.id)} className="text-red-400 hover:text-red-300 font-semibold text-sm">Delete</button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                        </div>
+                    );
+                };
+
+                // --- Sub-Component: Media View (Mocked Native) ---
+                const MediaView = () => (
+                    <div className="p-4 text-center">
+                        <h2 className="text-3xl font-extrabold text-orange-500 mb-6">Game Day Media</h2>
+                        
+                        <Video className="w-16 h-16 text-gray-500 mx-auto mb-6" />
+
+                        <div className="bg-gray-800 p-6 rounded-xl mb-6 shadow-xl">
+                            <h3 className="text-xl font-bold text-white mb-4">Live Game Recording (Mock)</h3>
+                            <p className="text-gray-400 mb-4 text-sm">
+                                This feature simulates the black and orange video chat concept. Real-time video requires complex server setup (WebRTC) and is not currently possible in this single web file.
+                            </p>
+                            <button
+                                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors"
+                                onClick={() => console.log("Simulated: Starting live recording...")}
+                            >
+                                <span className="flex items-center justify-center"><Video className="w-5 h-5 mr-2" /> **Simulated** Go Live</span>
+                            </button>
+                        </div>
+                        
+                    </div>
+                );
+
+                // --- Sub-Component: Add/Edit Modal (Player/Schedule) ---
+                const Modal = ({ type, data, onClose, onSave }) => {
+                    const [formData, setFormData] = useState(data);
+
+                    const handleChange = (e) => {
+                        const { name, value, type } = e.target;
+                        // Convert number fields to integers
+                        const finalValue = type === 'number' ? parseInt(value) || '' : value;
+                        setFormData(prev => ({ ...prev, [name]: finalValue }));
+                    };
+
+                    const handleSubmit = (e) => {
+                        e.preventDefault();
+                        onSave(type, formData);
+                    };
+
+                    const title = type === 'player' 
+                        ? (data.id ? 'Edit Player' : 'Add New Player')
+                        : (data.id ? 'Edit Schedule Event' : 'Add New Event');
+
+                    return (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                            <div className="bg-gray-800 w-full max-w-md rounded-xl shadow-2xl p-6">
+                                <h3 className="text-2xl font-bold text-orange-500 mb-4">{title}</h3>
+                                <form onSubmit={handleSubmit} className="space-y-4">
+                                    {type === 'player' ? (
+                                        <>
+                                            <input
+                                                type="text"
+                                                name="name"
+                                                value={formData.name || ''}
+                                                onChange={handleChange}
+                                                placeholder="Player Name"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="number"
+                                                name="number"
+                                                value={formData.number || ''}
+                                                onChange={handleChange}
+                                                placeholder="Jersey Number"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="number"
+                                                name="age"
+                                                value={formData.age || ''}
+                                                onChange={handleChange}
+                                                placeholder="Age"
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="text"
+                                                name="grade"
+                                                value={formData.grade || ''}
+                                                onChange={handleChange}
+                                                placeholder="Grade Level (e.g., 10th Grade)"
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="text"
+                                                name="socialMedia"
+                                                value={formData.socialMedia || ''}
+                                                onChange={handleChange}
+                                                placeholder="Social Media Handle (no '@' needed)"
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <input
+                                                type="text"
+                                                name="title"
+                                                value={formData.title || ''}
+                                                onChange={handleChange}
+                                                placeholder="Event Title (e.g., Game vs. Titans)"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="date"
+                                                name="date"
+                                                value={formData.date || ''}
+                                                onChange={handleChange}
+                                                placeholder="Date"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="time"
+                                                name="time"
+                                                value={formData.time || ''}
+                                                onChange={handleChange}
+                                                placeholder="Time"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <input
+                                                type="text"
+                                                name="location"
+                                                value={formData.location || ''}
+                                                onChange={handleChange}
+                                                placeholder="Location (e.g., North High Gym)"
+                                                required
+                                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                        </>
+                                    )}
+                                    <div className="flex justify-end space-x-3 pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={onClose}
+                                            className="px-4 py-2 text-white bg-gray-600 hover:bg-gray-500 rounded-lg font-semibold transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="px-4 py-2 text-white bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
+                                        >
+                                            Save Changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    );
+                };
+
+                // --- Main Render Logic ---
+
+                if (loading) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+                            <Loader2 className="w-8 h-8 animate-spin text-orange-500 mb-3" />
+                            <p>Loading Ballerheads Hub...</p>
+                        </div>
+                    );
+                }
+
+                const renderView = () => {
+                    switch (view) {
+                        case 'schedule': return <ScheduleView />;
+                        case 'chat': return <ChatView />;
+                        case 'admin': return <AdminView />;
+                        case 'media': return <MediaView />;
+                        case 'roster':
+                        default: return <RosterView />;
+                    }
+                };
+
+                return (
+                    <div className="relative flex flex-col h-screen max-h-screen overflow-hidden bg-gray-900 font-sans">
+                        {/* Header */}
+                        <header className="p-4 bg-gray-800 shadow-md flex justify-between items-center sticky top-0 z-10">
+                            {/* Logo: Displaying the uploaded image */}
+                            <img 
+                                src="logo.jpg" 
+                                alt="Ballerheads Team Logo"
+                                className="h-8 sm:h-10 w-auto rounded-lg" 
+                                // Fallback if the image doesn't load or is a placeholder
+                                onError={(e) => {
+                                    e.target.onerror = null; 
+                                    e.target.src = "https://placehold.co/120x40/f97316/ffffff?text=BALLERHEADS"; 
+                                }}
+                            />
+                            <div className='text-xs text-right text-gray-500'>
+                                <span className={`font-bold ${isAdmin ? 'text-green-500' : 'text-gray-400'}`}>{isAdmin ? 'ADMIN' : 'USER'}</span>
+                                <div className='truncate w-24 sm:w-32'>ID: {userId ? userId.substring(0, 8) : 'N/A'}...</div>
+                            </div>
+                        </header>
+
+                        {/* Main Content Area */}
+                        <main className="flex-1 overflow-y-auto custom-scrollbar pb-16">
+                            {renderView()}
+                        </main>
+
+                        {/* Navigation Bar */}
+                        <nav className="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 shadow-2xl flex justify-around p-1 z-20">
+                            <NavItem 
+                                icon={Users} 
+                                label="Roster" 
+                                isActive={view === 'roster'} 
+                                onClick={() => setView('roster')} 
+                            />
+                            <NavItem 
+                                icon={Calendar} 
+                                label="Schedule" 
+                                isActive={view === 'schedule'} 
+                                onClick={() => setView('schedule')} 
+                            />
+                            <NavItem 
+                                icon={MessageSquare} 
+                                label="Chat" 
+                                isActive={view === 'chat'} 
+                                onClick={() => setView('chat')} 
+                            />
+                            <NavItem 
+                                icon={Video} 
+                                label="Media" 
+                                isActive={view === 'media'} 
+                                onClick={() => setView('media')} 
+                            />
+                            <NavItem 
+                                icon={Settings} 
+                                label="Admin" 
+                                isActive={view === 'admin'} 
+                                onClick={() => setView('admin')} 
+                            />
+                        </nav>
+
+                        {/* Modal for Admin Forms */}
+                        {showModal && (
+                            <Modal
+                                type={modalType}
+                                data={modalData}
+                                onClose={() => {setShowModal(false); setModalData(null);}}
+                                onSave={handleSaveItem}
+                            />
+                        )}
+                    </div>
+                );
+            };
+
+            // Render the App component into the root element
+            const container = document.getElementById('root');
+            const root = ReactDOM.createRoot(container);
+            root.render(<App />);
+        }
+        // If the module script has already run and loaded utilities, start the app immediately.
+        if (window.firebase_utils) {
+            window.startReactApp();
+        }
+
+    </script>
+</body>
+</html>
