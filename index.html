@@ -19,11 +19,11 @@
 </head>
 <body>
     <div id="app">
-        <!-- App will render here -->
+        <!-- Initial Loading Spinner -->
         <div class="min-h-screen flex items-center justify-center bg-gray-900 text-white">
             <div class="flex items-center">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-                <p class="ml-4">Loading application...</p>
+                <p class="ml-4">Loading application and authenticating user...</p>
             </div>
         </div>
     </div>
@@ -32,7 +32,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, query, onSnapshot, updateDoc, getDocs, where, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // FIX: Added 'getDoc' to the import list.
+        import { getFirestore, doc, getDoc, collection, setDoc, query, onSnapshot, updateDoc, getDocs, where, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- GLOBAL SETUP ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -43,6 +44,7 @@
         let playersData = [];
         let adminIds = [];
         let hubData = {};
+        let isAppReady = false; // Control flag for initial render
 
         // Firestore Path Constants
         const TEAM_SETTINGS_DOC_PATH = `artifacts/${appId}/public/data/team_settings`;
@@ -68,32 +70,80 @@
             timestamp: new Date().toISOString()
         };
 
+        // --- STATE AND CONTROL FLAGS ---
+        let currentView = 'dashboard'; 
+        let selectedPlayer = null;
+        let isDetailOpen = false;
+
+        function setView(view) {
+            currentView = view;
+            isDetailOpen = false;
+            selectedPlayer = null;
+            renderApp();
+        }
+
+        function openDetail(player) {
+            selectedPlayer = player;
+            isDetailOpen = true;
+            renderApp();
+        }
+
+        function closeDetail() {
+            selectedPlayer = null;
+            isDetailOpen = false;
+            renderApp();
+        }
+
         // --- AUTH & INITIALIZATION ---
+
+        async function startAppFlow() {
+            if (isAppReady) return;
+            
+            console.log("4. Starting App Data Flow (Ensuring user profile/seeding data)...");
+            await ensureAdminAndSeed();
+
+            console.log("5. Setting up real-time data listeners...");
+            setupDataListeners();
+            
+            isAppReady = true;
+            console.log("6. Application ready. Rendering the main view.");
+            renderApp();
+        }
+
         async function initializeAppAndAuth() {
+            console.log("1. Starting Firebase Initialization...");
             try {
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
 
+                // Use the onAuthStateChanged listener to handle initial sign-in AND subsequent sign-in changes
                 onAuthStateChanged(auth, async (user) => {
+                    if (isAppReady) return; // Once started, ignore subsequent auth state changes for initial setup
+
+                    console.log("2. Authentication state changed. User:", user ? user.uid : 'null');
+
                     if (!user) {
+                        console.log("2a. User not found, attempting sign-in...");
                         if (initialAuthToken) {
                             await signInWithCustomToken(auth, initialAuthToken);
                         } else {
                             await signInAnonymously(auth);
                         }
+                        // NOTE: The listener will fire again with a user object, completing the flow.
+                        return;
                     }
-                    currentUserId = auth.currentUser?.uid || 'anonymous';
                     
-                    // Once authenticated, start the data flow and render the app
-                    await ensureAdminAndSeed();
-                    setupDataListeners();
-                    renderApp(); 
+                    // 3. User is now authenticated (initial or signed-in)
+                    currentUserId = user.uid;
+                    console.log(`3. User successfully authenticated: ${currentUserId}. Initiating data load.`);
+                    await startAppFlow();
                 });
             } catch (e) {
-                console.error("Error initializing Firebase:", e);
-                currentUserId = 'mock-user';
-                renderApp();
+                console.error("CRITICAL ERROR: Error during Firebase Initialization or Auth:", e);
+                // Fallback: Set a mock ID and try to render basic shell if setup failed
+                currentUserId = 'initialization-failed'; 
+                await startAppFlow(); 
             }
         }
 
@@ -118,19 +168,23 @@
                         role: 'New Recruit',
                     };
                     await setDoc(newPlayerRef, newPlayer);
+                }
 
-                    // 2. Ensure initial hub data exists (set first user as admin)
-                    const hubDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
-                    const hubDoc = await getDocs(playersCollectionRef);
-                    if (hubDoc.empty) {
-                        await setDoc(hubDocRef, { ...INITIAL_HUB_DATA, [ADMIN_IDS_FIELD]: [currentUserId] }); 
-                        
-                        // 3. Seed mock players (for demonstration)
-                        MOCK_PLAYERS.forEach(async (player, index) => {
-                            const mockPlayerId = `mock-${index}-${Math.random().toString(36).substring(2, 9)}`;
-                            await setDoc(doc(playersCollectionRef, mockPlayerId), { ...player, userId: mockPlayerId, id: mockPlayerId });
-                        });
-                    }
+                // 2. Ensure initial hub data exists (set first user as admin)
+                const hubDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
+                const hubDoc = await getDocs(playersCollectionRef); // Intentional: using players to check if the database is empty
+                
+                const settingsDoc = await getDoc(hubDocRef); // Check for the settings document specifically
+                
+                if (!settingsDoc.exists() || hubDoc.empty) {
+                    console.log("Seeding initial data and setting first user as admin.");
+                    await setDoc(hubDocRef, { ...INITIAL_HUB_DATA, [ADMIN_IDS_FIELD]: [currentUserId] }); 
+                    
+                    // 3. Seed mock players (for demonstration)
+                    MOCK_PLAYERS.forEach(async (player, index) => {
+                        const mockPlayerId = `mock-${index}-${Math.random().toString(36).substring(2, 9)}`;
+                        await setDoc(doc(playersCollectionRef, mockPlayerId), { ...player, userId: mockPlayerId, id: mockPlayerId });
+                    });
                 }
             } catch (error) {
                 console.error("Error ensuring user or seeding data:", error);
@@ -160,7 +214,6 @@
                     adminIds = data[ADMIN_IDS_FIELD] || [];
                     hubData = data;
                 } else {
-                    console.warn("Team settings document not found.");
                     adminIds = [];
                     hubData = INITIAL_HUB_DATA;
                 }
@@ -170,31 +223,6 @@
             });
         }
         
-        // --- STATE MANAGEMENT (Simplified for HTML/JS) ---
-        let currentView = 'dashboard'; 
-        let selectedPlayer = null;
-        let isDetailOpen = false;
-
-        function setView(view) {
-            currentView = view;
-            isDetailOpen = false;
-            selectedPlayer = null;
-            renderApp();
-        }
-
-        function openDetail(player) {
-            selectedPlayer = player;
-            isDetailOpen = true;
-            renderApp();
-        }
-
-        function closeDetail() {
-            selectedPlayer = null;
-            isDetailOpen = false;
-            renderApp();
-        }
-
-
         // --- FIREBASE WRITE OPERATIONS ---
         async function handleUpdateProfile(updates) {
             if (!db || !currentUserId) return;
@@ -235,14 +263,12 @@
             const settingsDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
             if (!settingsDocRef || newMessage.trim().length === 0) return;
 
-            // Simple button disabling handled in HTML, not in this async function.
             try {
                 await setDoc(settingsDocRef, { 
                     coachsMessage: newMessage,
                     timestamp: new Date().toISOString(),
                     lastEditor: currentUserId
                 }, { merge: true });
-                console.log("Coach's message updated successfully.");
             } catch (error) {
                 console.error("Error updating coach's message:", error);
             }
@@ -254,16 +280,7 @@
             return `<i data-lucide="${name}" class="${classes}"></i>`;
         }
 
-        function createButton(text, iconName, classes, onClick) {
-            const button = document.createElement('button');
-            button.className = classes;
-            button.innerHTML = `${getIcon(iconName, 'w-4 h-4 mr-2')} ${text}`;
-            button.onclick = onClick;
-            return button;
-        }
-
         // --- COMPONENT RENDERING FUNCTIONS ---
-
         function renderAdminPanel() {
             const isAdmin = adminIds.includes(currentUserId);
             if (!isAdmin) return '';
@@ -295,8 +312,7 @@
                 <div class="pt-4 border-t border-red-800">
                     <h3 class="text-xl font-semibold text-white mb-2">Add New Admin</h3>
                     <div class="flex space-x-2">
-                        <input id="new-admin-id" type="text" placeholder="Paste User ID to promote" value="${newAdminIdInput}"
-                            oninput="window.updateAdminInput(this.value)"
+                        <input id="new-admin-id" type="text" placeholder="Paste User ID to promote" value=""
                             class="flex-grow p-2 rounded-lg bg-gray-800 text-white border border-gray-700 focus:ring-red-500 focus:border-red-500 placeholder-gray-500"
                         />
                         <button id="add-admin-btn"
@@ -334,18 +350,16 @@
             const inputEl = panel.querySelector('#new-admin-id');
             const buttonEl = panel.querySelector('#add-admin-btn');
 
-            window.updateAdminInput = (value) => {
-                newAdminIdInput = value.trim();
+            inputEl.oninput = () => {
+                newAdminIdInput = inputEl.value.trim();
                 const isDisabled = !newAdminIdInput || adminIds.includes(newAdminIdInput);
                 buttonEl.disabled = isDisabled;
-            }
+            };
 
             buttonEl.onclick = async () => {
                 await handleAddAdmin(newAdminIdInput);
-                newAdminIdInput = ''; // Clear input after adding
                 inputEl.value = '';
                 buttonEl.disabled = true;
-                renderApp(); // Rerender to show changes
             };
 
             return panel.outerHTML;
@@ -382,20 +396,18 @@
             if (isAdmin) {
                 const textarea = editorDiv.querySelector('#coach-message-textarea');
                 const saveBtn = editorDiv.querySelector('#save-message-btn');
+                const initialMessage = hubData.coachsMessage || INITIAL_HUB_DATA.coachsMessage;
 
                 textarea.oninput = () => {
-                    saveBtn.disabled = (textarea.value.trim() === (hubData.coachsMessage || INITIAL_HUB_DATA.coachsMessage)) || textarea.value.trim().length === 0;
+                    saveBtn.disabled = (textarea.value.trim() === initialMessage) || textarea.value.trim().length === 0;
                 };
                 
-                // Initial check
-                textarea.oninput();
+                textarea.oninput(); // Initial check
 
                 saveBtn.onclick = async () => {
                     saveBtn.textContent = 'Saving...';
                     saveBtn.disabled = true;
                     await handleSaveCoachMessage(textarea.value.trim());
-                    // Re-enable/update state based on the new hubData from the listener
-                    // The onSnapshot listener handles the final state update/re-render
                 };
             }
 
@@ -417,10 +429,10 @@
                     <div class="bg-indigo-50 p-6 rounded-xl shadow-lg border-b-4 border-indigo-400">
                         <h2 class="text-2xl font-bold text-indigo-800 mb-3">Next Matchup</h2>
                         <p class="text-gray-700 mb-2">
-                            <span class="font-medium">Opponent:</span> <span class="font-bold text-indigo-700">${hubData.opponent}</span>
+                            <span class="font-medium">Opponent:</span> <span class="font-bold text-indigo-700">${hubData.opponent || INITIAL_HUB_DATA.opponent}</span>
                         </p>
                         <p class="text-gray-700 mb-4">
-                            <span class="font-medium">Date & Time:</span> <span class="font-bold text-indigo-700">${hubData.dateTime}</span>
+                            <span class="font-medium">Date & Time:</span> <span class="font-bold text-indigo-700">${hubData.dateTime || INITIAL_HUB_DATA.dateTime}</span>
                         </p>
                         <button class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700 transition">
                             View Full Schedule (Future Feature)
@@ -441,7 +453,7 @@
                             </li>
                             <li class="flex justify-between">
                                 <span class='font-medium'>Jersey Color:</span> 
-                                <span class="font-bold text-green-600">${hubData.jerseyColor}</span>
+                                <span class="font-bold text-green-600">${hubData.jerseyColor || INITIAL_HUB_DATA.jerseyColor}</span>
                             </li>
                         </ul>
                         <button id="go-to-roster-btn"
@@ -703,7 +715,8 @@
             const appRoot = document.getElementById('app');
             let contentHTML = '';
 
-            if (!db || !currentUserId) {
+            if (!isAppReady) {
+                // Keep showing loading screen if not ready
                 contentHTML = `
                     <div class="min-h-screen flex items-center justify-center bg-gray-900 text-white">
                         <div class="flex items-center">
