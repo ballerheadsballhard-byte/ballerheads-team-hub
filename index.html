@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Roster and Dashboard Hub</title>
+    <title>Ballerheads Locker Room</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load Lucide Icons for aesthetic icons -->
@@ -13,17 +13,34 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #111827; /* Tailwind gray-900 */
+            background-color: #0a0a0a; /* Almost black */
+        }
+        /* Custom scrollbars for chat and media */
+        #chat-content::-webkit-scrollbar,
+        #fan-chat-content::-webkit-scrollbar,
+        #media-gallery::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-content::-webkit-scrollbar-thumb { background-color: #f59e0b; border-radius: 4px; }
+        #fan-chat-content::-webkit-scrollbar-thumb { background-color: #a855f7; border-radius: 4px; }
+        #media-gallery::-webkit-scrollbar-thumb { background-color: #3b82f6; border-radius: 4px; }
+        #chat-content::-webkit-scrollbar-track,
+        #fan-chat-content::-webkit-scrollbar-track,
+        #media-gallery::-webkit-scrollbar-track { background-color: #1f2937; }
+        
+        .rsvp-button-selected {
+            box-shadow: 0 0 0 3px #10b981; /* Tailwind Emerald-500 equivalent */
+            z-index: 10;
         }
     </style>
 </head>
 <body>
     <div id="app">
         <!-- Initial Loading Spinner -->
-        <div class="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <div class="min-h-screen flex items-center justify-center bg-gray-950 text-gray-200">
             <div class="flex items-center">
-                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-                <p class="ml-4">Loading application and authenticating user...</p>
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
+                <p class="ml-4">Locker Room doors opening...</p>
             </div>
         </div>
     </div>
@@ -32,8 +49,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // FIX: Added 'getDoc' to the import list.
-        import { getFirestore, doc, getDoc, collection, setDoc, query, onSnapshot, updateDoc, getDocs, where, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, collection, setDoc, query, onSnapshot, updateDoc, getDocs, where, arrayUnion, arrayRemove, addDoc, serverTimestamp, orderBy, limit, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- GLOBAL SETUP ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -44,19 +60,27 @@
         let playersData = [];
         let adminIds = [];
         let hubData = {};
-        let isAppReady = false; // Control flag for initial render
+        let teamChatMessages = [];
+        let parentChatMessages = [];
+        let eventsData = [];
+        let fanMediaData = []; 
+        let isAppReady = false; 
 
         // Firestore Path Constants
         const TEAM_SETTINGS_DOC_PATH = `artifacts/${appId}/public/data/team_settings`;
         const ADMIN_IDS_FIELD = 'admin_user_ids';
         const PLAYERS_COLLECTION = `artifacts/${appId}/public/data/players`;
+        const TEAM_CHAT_COLLECTION = `artifacts/${appId}/public/data/team_chat`;
+        const PARENT_CHAT_COLLECTION = `artifacts/${appId}/public/data/parent_fan_chat`;
+        const EVENTS_COLLECTION = `artifacts/${appId}/public/data/events`;
+        const FAN_MEDIA_COLLECTION = `artifacts/${appId}/public/data/fan_media`; 
         const HUB_DOC_ID = 'hub_data'; 
         
         // Mock data for initial seeding (roster)
         const MOCK_PLAYERS = [
-            { name: 'Alex Johnson', jerseyNumber: 23, headshotUrl: 'https://placehold.co/100x100/1e40af/ffffff?text=AJ', role: 'Captain' },
-            { name: 'Maria Garcia', jerseyNumber: 11, headshotUrl: 'https://placehold.co/100x100/1d4ed8/ffffff?text=MG', role: 'Forward' },
-            { name: 'Sam Chen', jerseyNumber: 88, headshotUrl: 'https://placehold.co/100x100/3b82f6/ffffff?text=SC', role: 'Defense' },
+            { name: 'Alex Johnson', jerseyNumber: 23, headshotUrl: 'https://placehold.co/100x100/f97316/000000?text=AJ', role: 'Captain' },
+            { name: 'Maria Garcia', jerseyNumber: 11, headshotUrl: 'https://placehold.co/100x100/fb923c/000000?text=MG', role: 'Forward' },
+            { name: 'Sam Chen', jerseyNumber: 88, headshotUrl: 'https://placehold.co/100x100/fcd34d/000000?text=SC', role: 'Defense' },
         ];
 
         // Mock data for initial seeding (dashboard settings)
@@ -65,20 +89,40 @@
             dateTime: "Friday, October 4th at 7:00 PM",
             totalPlayers: 3,
             captains: 1,
-            jerseyColor: "Emerald Green",
-            coachsMessage: "Welcome to the unified Team Hub! This message is synced via the cloud. Go to the Roster tab to set your name and number.",
+            jerseyColor: "Black & Orange",
+            coachsMessage: "Welcome to the Ballerheads Locker Room! Set your name and check the Calendar for practice times.",
             timestamp: new Date().toISOString()
         };
+        
+        // Mock Events with new RSVP structure
+        const MOCK_EVENTS = [
+            { title: "Practice: Drills & Conditioning", date: "2025-10-10", time: "5:00 PM", location: "Field 1", rsvps: {} },
+            { title: "Game vs. The Raptors", date: "2025-10-14", time: "7:30 PM", location: "Home Stadium", rsvps: {} },
+            { title: "Team Dinner", date: "2025-10-15", time: "6:00 PM", location: "Coach's House", rsvps: {} },
+        ];
+
 
         // --- STATE AND CONTROL FLAGS ---
-        let currentView = 'dashboard'; 
+        let currentView = 'dashboard';
         let selectedPlayer = null;
         let isDetailOpen = false;
+        let currentViewParams = {}; // New variable to store view-specific parameters
 
-        function setView(view) {
+        // Live Stream/Recording Mock State
+        let liveStreamState = {
+            isLive: false,
+            isRecording: false,
+            liveDuration: 0,
+            recordDuration: 0,
+            timerInterval: null
+        };
+        
+        // Set the current view and ensure details are closed
+        window.setView = function(view, params = {}) {
             currentView = view;
             isDetailOpen = false;
             selectedPlayer = null;
+            currentViewParams = params; // Store parameters
             renderApp();
         }
 
@@ -91,6 +135,7 @@
         function closeDetail() {
             selectedPlayer = null;
             isDetailOpen = false;
+            currentView = 'roster'; // Go back to roster after closing
             renderApp();
         }
 
@@ -105,6 +150,11 @@
             console.log("5. Setting up real-time data listeners...");
             setupDataListeners();
             
+            // Start the mock timer if it's not running (for the live hub)
+            if (liveStreamState.isLive || liveStreamState.isRecording) {
+                startTimer();
+            }
+
             isAppReady = true;
             console.log("6. Application ready. Rendering the main view.");
             renderApp();
@@ -117,9 +167,8 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                // Use the onAuthStateChanged listener to handle initial sign-in AND subsequent sign-in changes
                 onAuthStateChanged(auth, async (user) => {
-                    if (isAppReady) return; // Once started, ignore subsequent auth state changes for initial setup
+                    if (isAppReady && user && user.uid === currentUserId) return; 
 
                     console.log("2. Authentication state changed. User:", user ? user.uid : 'null');
 
@@ -130,18 +179,15 @@
                         } else {
                             await signInAnonymously(auth);
                         }
-                        // NOTE: The listener will fire again with a user object, completing the flow.
                         return;
                     }
                     
-                    // 3. User is now authenticated (initial or signed-in)
                     currentUserId = user.uid;
                     console.log(`3. User successfully authenticated: ${currentUserId}. Initiating data load.`);
                     await startAppFlow();
                 });
             } catch (e) {
                 console.error("CRITICAL ERROR: Error during Firebase Initialization or Auth:", e);
-                // Fallback: Set a mock ID and try to render basic shell if setup failed
                 currentUserId = 'initialization-failed'; 
                 await startAppFlow(); 
             }
@@ -164,7 +210,7 @@
                         userId: currentUserId,
                         name: `New Recruit ${currentUserId.substring(0, 4)}`,
                         jerseyNumber: 99,
-                        headshotUrl: `https://placehold.co/100x100/60a5fa/ffffff?text=${currentUserId.substring(0, 2)}`,
+                        headshotUrl: `https://placehold.co/100x100/f97316/000000?text=${currentUserId.substring(0, 2)}`,
                         role: 'New Recruit',
                     };
                     await setDoc(newPlayerRef, newPlayer);
@@ -172,18 +218,27 @@
 
                 // 2. Ensure initial hub data exists (set first user as admin)
                 const hubDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
-                const hubDoc = await getDocs(playersCollectionRef); // Intentional: using players to check if the database is empty
+                const settingsDoc = await getDoc(hubDocRef);
                 
-                const settingsDoc = await getDoc(hubDocRef); // Check for the settings document specifically
-                
-                if (!settingsDoc.exists() || hubDoc.empty) {
-                    console.log("Seeding initial data and setting first user as admin.");
+                if (!settingsDoc.exists()) {
+                    console.log("Seeding initial settings data and setting first user as admin.");
                     await setDoc(hubDocRef, { ...INITIAL_HUB_DATA, [ADMIN_IDS_FIELD]: [currentUserId] }); 
                     
                     // 3. Seed mock players (for demonstration)
                     MOCK_PLAYERS.forEach(async (player, index) => {
                         const mockPlayerId = `mock-${index}-${Math.random().toString(36).substring(2, 9)}`;
                         await setDoc(doc(playersCollectionRef, mockPlayerId), { ...player, userId: mockPlayerId, id: mockPlayerId });
+                    });
+                    
+                    // 4. Seed mock events
+                    const eventsColRef = collection(db, EVENTS_COLLECTION);
+                    MOCK_EVENTS.forEach(async (event) => {
+                        // Check if an event with a similar date already exists (to prevent continuous seeding)
+                        const eventQuery = query(eventsColRef, where('date', '==', event.date), limit(1));
+                        const existingEvents = await getDocs(eventQuery);
+                        if (existingEvents.empty) {
+                           await addDoc(eventsColRef, event);
+                        }
                     });
                 }
             } catch (error) {
@@ -197,14 +252,9 @@
 
             // Roster Listener
             onSnapshot(collection(db, PLAYERS_COLLECTION), (snapshot) => {
-                playersData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                }));
+                playersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderApp();
-            }, (error) => {
-                console.error("Error fetching players:", error);
-            });
+            }, (error) => { console.error("Error fetching players:", error); });
             
             // Admin and Hub Data Listener
             const hubDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
@@ -218,27 +268,799 @@
                     hubData = INITIAL_HUB_DATA;
                 }
                 renderApp();
-            }, (error) => {
-                console.error("Error fetching admin list/hub data:", error);
-            });
+            }, (error) => { console.error("Error fetching admin list/hub data:", error); });
+            
+            // Events Listener
+            onSnapshot(collection(db, EVENTS_COLLECTION), (snapshot) => {
+                eventsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                eventsData.sort((a, b) => (a.date > b.date) ? 1 : -1);
+                renderApp();
+            }, (error) => { console.error("Error fetching events:", error); });
+
+            // Team Chat Listener
+            const teamChatQuery = query(collection(db, TEAM_CHAT_COLLECTION), orderBy('timestamp', 'desc'), limit(50));
+            onSnapshot(teamChatQuery, (snapshot) => {
+                teamChatMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date() })).reverse(); 
+                renderApp();
+            }, (error) => { console.error("Error fetching team chat messages:", error); });
+
+            // Parent Fan Chat Listener
+            const parentChatQuery = query(collection(db, PARENT_CHAT_COLLECTION), orderBy('timestamp', 'desc'), limit(50));
+            onSnapshot(parentChatQuery, (snapshot) => {
+                parentChatMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date() })).reverse(); 
+                renderApp();
+            }, (error) => { console.error("Error fetching parent chat messages:", error); });
+            
+            // Fan Media Listener
+            const fanMediaQuery = query(collection(db, FAN_MEDIA_COLLECTION), orderBy('timestamp', 'desc'), limit(15));
+            onSnapshot(fanMediaQuery, (snapshot) => {
+                fanMediaData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date() })); 
+                renderApp();
+            }, (error) => { console.error("Error fetching fan media:", error); });
         }
         
-        // --- FIREBASE WRITE OPERATIONS ---
-        async function handleUpdateProfile(updates) {
-            if (!db || !currentUserId) return;
-            try {
-                const userDoc = playersData.find(p => p.userId === currentUserId);
-                if (userDoc) {
-                    const docRef = doc(db, PLAYERS_COLLECTION, userDoc.id);
-                    await updateDoc(docRef, updates);
-                } else {
-                    console.warn("Current user document not found.");
+        // --- HELPER FUNCTIONS FOR UI ---
+        function getIcon(name, classes) {
+            return `<i data-lucide="${name}" class="${classes}"></i>`;
+        }
+        
+        function formatTime(timestamp) {
+            if (timestamp instanceof Date) {
+                return timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            }
+            return '...';
+        }
+        
+        function formatDate(timestamp) {
+             if (timestamp instanceof Date) {
+                return timestamp.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+            return 'N/A';
+        }
+        
+        function getRsvpCounts(rsvps) {
+            const counts = { 'attending': 0, 'not_attending': 0, 'maybe': 0 };
+            Object.values(rsvps || {}).forEach(status => {
+                if (counts.hasOwnProperty(status)) {
+                    counts[status]++;
                 }
-            } catch (error) {
-                console.error("Error updating profile:", error);
+            });
+            return counts;
+        }
+
+        function formatDuration(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            const pad = (num) => String(num).padStart(2, '0');
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+        
+        // --- LIVE STREAM CONTROL LOGIC ---
+
+        function startTimer() {
+            if (liveStreamState.timerInterval) clearInterval(liveStreamState.timerInterval);
+            
+            liveStreamState.timerInterval = setInterval(() => {
+                if (liveStreamState.isLive) {
+                    liveStreamState.liveDuration++;
+                }
+                if (liveStreamState.isRecording) {
+                    liveStreamState.recordDuration++;
+                }
+                // Only re-render if we are actually viewing the livestream page 
+                if (currentView === 'livestream') {
+                    renderApp(); 
+                }
+            }, 1000);
+        }
+        
+        function stopTimer() {
+            if (liveStreamState.timerInterval) {
+                clearInterval(liveStreamState.timerInterval);
+                liveStreamState.timerInterval = null;
             }
         }
         
+        function toggleLive() {
+            if (!adminIds.includes(currentUserId)) return;
+            liveStreamState.isLive = !liveStreamState.isLive;
+            if (liveStreamState.isLive) {
+                if (!liveStreamState.timerInterval) startTimer();
+            } else {
+                liveStreamState.liveDuration = 0; // Reset live duration on stop
+                if (!liveStreamState.isRecording) stopTimer();
+            }
+            renderApp();
+        }
+
+        function toggleRecording() {
+            if (!adminIds.includes(currentUserId)) return;
+            liveStreamState.isRecording = !liveStreamState.isRecording;
+            if (liveStreamState.isRecording) {
+                if (!liveStreamState.timerInterval) startTimer();
+            } else {
+                liveStreamState.recordDuration = 0; // Reset record duration on stop
+                if (!liveStreamState.isLive) stopTimer();
+            }
+            renderApp();
+        }
+        
+        // --- VIEWS ---
+        
+        function renderPrivateCommsView() {
+            const targetPlayerId = currentViewParams.playerId;
+            const commsType = currentViewParams.type; // 'DM' or 'PV'
+            
+            const targetPlayer = playersData.find(p => p.userId === targetPlayerId);
+            if (!targetPlayer) return `<p class="text-center text-red-500 py-10">Player not found.</p>`;
+
+            const isDM = commsType === 'DM';
+            const icon = isDM ? 'message-square' : 'video';
+            const title = isDM ? 'Direct Message Interface' : 'Private Video Chat Room';
+            const action = isDM ? 'Starting a secure text session with' : 'Initiating private video call with';
+            const themeColor = isDM ? 'violet' : 'blue';
+
+            return `
+                <div class="p-4 sm:p-8 w-full max-w-lg mx-auto text-center">
+                    <button onclick="setView('roster')"
+                        class="text-gray-400 hover:text-amber-400 mb-6 flex items-center transition"
+                    >
+                        &larr; Back to Roster
+                    </button>
+                    
+                    <div class="bg-gray-800 p-8 rounded-xl shadow-2xl border-t-4 border-${themeColor}-500">
+                        <div class="flex flex-col items-center">
+                            ${getIcon(icon, `w-16 h-16 text-${themeColor}-400 mb-4 animate-pulse`)}
+                            <h1 class="text-3xl font-extrabold text-${themeColor}-400 mb-2">${title}</h1>
+                            <p class="text-gray-300 text-lg mb-4">${action}:</p>
+                            
+                            <div class="flex items-center space-x-4 bg-gray-700 p-3 rounded-full shadow-inner">
+                                <img src="${targetPlayer.headshotUrl}" alt="${targetPlayer.name}" class="w-12 h-12 rounded-full object-cover border-2 border-${themeColor}-400"
+                                    onerror="this.onerror=null;this.src='https://placehold.co/100x100/374151/D1D5DB?text=ERR';"
+                                />
+                                <span class="text-2xl font-bold text-white">${targetPlayer.name} (#${targetPlayer.jerseyNumber})</span>
+                            </div>
+
+                            <p class="text-sm text-gray-500 mt-6">
+                                NOTE: In a full production environment, this is where your secure, peer-to-peer communication would load.
+                                For this app, this confirms the connection intent.
+                            </p>
+                            
+                            <button onclick="setView('roster')" class="mt-8 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition">
+                                Disconnect / Close Room
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLivestreamView() {
+            const isAdmin = adminIds.includes(currentUserId);
+            const isLive = liveStreamState.isLive;
+            const isRecording = liveStreamState.isRecording;
+            const liveDuration = formatDuration(liveStreamState.liveDuration);
+            const recordDuration = formatDuration(liveStreamState.recordDuration);
+
+            const container = document.createElement('div');
+            container.className = "p-4 sm:p-8 w-full max-w-5xl mx-auto";
+
+            container.innerHTML = `
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-red-500 text-center mb-10 flex items-center justify-center">
+                    ${getIcon('radio', 'w-8 h-8 inline-block mr-3')} Game Broadcast Hub
+                </h1>
+                
+                ${!isAdmin ? `
+                    <!-- Non-Admin/Fan View -->
+                    <div class="bg-gray-800 p-8 rounded-xl shadow-2xl border-t-4 border-red-500 text-center">
+                        <div class="mb-6">
+                            ${isLive ? `
+                                <div class="p-4 bg-red-900/50 border border-red-500 rounded-lg animate-pulse">
+                                    <h2 class="text-3xl font-bold text-red-400 flex items-center justify-center">
+                                        ${getIcon('circle-dot', 'w-6 h-6 mr-2 fill-red-400')}
+                                        LIVE BROADCAST IN PROGRESS
+                                    </h2>
+                                    <p class="text-gray-400 mt-2">The game is being streamed now. Duration: ${liveDuration}</p>
+                                    <div class="mt-4 w-full h-64 bg-black rounded-lg flex items-center justify-center text-gray-500">
+                                        <p>Mock Stream Player Area</p>
+                                    </div>
+                                    <button class="mt-4 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition">
+                                        Tune In Now! (Mock Link)
+                                    </button>
+                                </div>
+                            ` : `
+                                <div class="p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+                                    <h2 class="text-3xl font-bold text-gray-400">OFF AIR</h2>
+                                    <p class="text-gray-500 mt-2">No live broadcast currently running. Check back closer to game time.</p>
+                                </div>
+                            `}
+                        </div>
+                        
+                        <div class="bg-gray-700 p-4 rounded-lg mt-8">
+                             <h3 class="text-xl font-semibold text-gray-200 flex items-center justify-center">
+                                ${getIcon('clapperboard', 'w-6 h-6 mr-2')} Latest Recording Status
+                             </h3>
+                            <p class="text-gray-400 mt-2">${isRecording ? 
+                                `<span class="text-yellow-400 font-bold">Currently Recording</span> | Duration: ${recordDuration}` : 
+                                `Game recordings will appear here after the match!`}</p>
+                        </div>
+
+                    </div>
+
+                ` : `
+                    <!-- Admin Control Panel -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        <!-- Live Stream Control -->
+                        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border-b-4 border-red-600">
+                            <h2 class="text-2xl font-bold text-red-400 mb-4 flex items-center">
+                                ${getIcon('circle-dot', 'w-6 h-6 mr-2 fill-red-400')} Live Broadcast
+                            </h2>
+                            <p class="text-gray-400 mb-4">Control the live game stream feed for fans.</p>
+                            
+                            <button id="toggle-live-btn"
+                                class="w-full py-3 font-bold rounded-lg transition text-xl flex items-center justify-center
+                                    ${isLive ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-500 text-gray-900'}"
+                            >
+                                ${getIcon(isLive ? 'stop-circle' : 'play-circle', 'w-6 h-6 mr-3')}
+                                ${isLive ? 'End Live Stream' : 'Go Live Now!'}
+                            </button>
+                            
+                            <div class="mt-4 text-center">
+                                ${isLive ? `
+                                    <p class="text-lg font-mono text-red-400 font-bold animate-pulse">LIVE: ${liveDuration}</p>
+                                    <p class="text-sm text-gray-500">Live stream initiated (Mock Status)</p>
+                                ` : `
+                                    <p class="text-gray-500">Status: Off Air</p>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Game Recording Control -->
+                        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border-b-4 border-yellow-600">
+                            <h2 class="text-2xl font-bold text-yellow-400 mb-4 flex items-center">
+                                ${getIcon('video', 'w-6 h-6 mr-2')} Game Recording
+                            </h2>
+                            <p class="text-gray-400 mb-4">Manage local recording for VOD (Video on Demand) archives.</p>
+                            
+                            <button id="toggle-record-btn"
+                                class="w-full py-3 font-bold rounded-lg transition text-xl flex items-center justify-center
+                                    ${isRecording ? 'bg-yellow-700 hover:bg-yellow-600 text-white' : 'bg-blue-600 hover:bg-blue-500 text-gray-900'}"
+                            >
+                                ${getIcon(isRecording ? 'pause-circle' : 'circle', 'w-6 h-6 mr-3')}
+                                ${isRecording ? 'Stop Recording' : 'Start Recording'}
+                            </button>
+                            
+                            <div class="mt-4 text-center">
+                                ${isRecording ? `
+                                    <p class="text-lg font-mono text-yellow-400 font-bold animate-pulse">RECORDING: ${recordDuration}</p>
+                                    <p class="text-sm text-gray-500">Recording in progress (Mock Status)</p>
+                                ` : `
+                                    <p class="text-gray-500">Status: Idle</p>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `}
+            `;
+
+            if (isAdmin) {
+                container.querySelector('#toggle-live-btn').onclick = toggleLive;
+                container.querySelector('#toggle-record-btn').onclick = toggleRecording;
+            }
+
+            return container.outerHTML;
+        }
+
+        // --- Other Views (Roster, Chat, Media, Calendar) remain functionally the same, only internal helper logic is simplified or moved ---
+
+        function renderGenericChat(messages, chatType) {
+            const container = document.createElement('div');
+            container.className = "p-4 sm:p-8 w-full max-w-lg mx-auto h-[70vh] flex flex-col";
+            
+            const currentUserProfile = playersData.find(p => p.userId === currentUserId) || { name: 'Anonymous User' };
+            
+            const isTeamChat = chatType === 'team';
+            const themeColor = isTeamChat ? 'amber' : 'violet';
+            
+            const chatContent = document.createElement('div');
+            chatContent.id = isTeamChat ? 'chat-content' : 'fan-chat-content';
+            chatContent.className = `flex-grow overflow-y-auto space-y-4 p-4 rounded-xl bg-gray-900 shadow-inner mb-4 border border-gray-700`;
+
+            const renderMessage = (msg) => {
+                const isMine = msg.userId === currentUserId;
+                const alignment = isMine ? 'justify-end' : 'justify-start';
+                const color = isMine ? `bg-${themeColor}-600 text-gray-900` : 'bg-gray-700 text-gray-100'; 
+                const nameColor = isMine ? `text-${themeColor}-300` : 'text-gray-400';
+                
+                return `
+                    <div class="flex ${alignment}">
+                        <div class="max-w-xs md:max-w-md">
+                            <p class="text-xs ${isMine ? 'text-right' : 'text-left'} ${nameColor} font-semibold mb-0.5">
+                                ${msg.userName}
+                            </p>
+                            <div class="p-3 rounded-xl ${color} shadow-md break-words">
+                                ${msg.message}
+                            </div>
+                            <p class="text-xs mt-0.5 ${isMine ? 'text-right text-gray-400' : 'text-left text-gray-500'}">
+                                ${formatTime(msg.timestamp)}
+                            </p>
+                        </div>
+                    </div>
+                `;
+            };
+
+            if (messages.length > 0) {
+                chatContent.innerHTML = messages.map(renderMessage).join('');
+                setTimeout(() => { chatContent.scrollTop = chatContent.scrollHeight; }, 100); 
+            } else {
+                chatContent.innerHTML = `<p class="text-center text-gray-500 py-10">Start the conversation! Only the last 50 messages are shown.</p>`;
+            }
+
+            const chatInputArea = document.createElement('div');
+            chatInputArea.className = 'flex space-x-3 items-center flex-shrink-0';
+            chatInputArea.innerHTML = `
+                <input id="chat-input-${chatType}" type="text" placeholder="Send a message as ${currentUserProfile.name}..."
+                    class="flex-grow p-3 rounded-full bg-gray-700 text-white border border-gray-600 focus:ring-${themeColor}-500 focus:border-${themeColor}-500 placeholder-gray-400"
+                    maxlength="250"
+                />
+                <button id="send-btn-${chatType}"
+                    class="p-3 bg-${themeColor}-600 hover:bg-${themeColor}-500 text-gray-900 rounded-full transition duration-150 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                    disabled
+                    aria-label="Send Message"
+                >
+                    ${getIcon('send', 'w-6 h-6')}
+                </button>
+            `;
+
+            const inputEl = chatInputArea.querySelector(`#chat-input-${chatType}`);
+            const buttonEl = chatInputArea.querySelector(`#send-btn-${chatType}`);
+            
+            inputEl.oninput = () => { buttonEl.disabled = inputEl.value.trim().length === 0; };
+
+            const sendMessage = async () => {
+                const message = inputEl.value.trim();
+                if (message) {
+                    inputEl.value = '';
+                    buttonEl.disabled = true;
+                    await handlePostMessage(message, chatType);
+                }
+            };
+            
+            buttonEl.onclick = sendMessage;
+            inputEl.onkeydown = (event) => {
+                if (event.key === 'Enter' && !buttonEl.disabled) { sendMessage(); }
+            };
+            
+            container.innerHTML = `
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-${themeColor}-400 text-center mb-6">
+                    ${getIcon(isTeamChat ? 'message-square' : 'megaphone', 'w-8 h-8 inline-block mr-2')} 
+                    ${isTeamChat ? 'Team Locker Room Chat' : 'Parent Fan Section'}
+                </h1>
+            `;
+            container.appendChild(chatContent);
+            container.appendChild(chatInputArea);
+            
+            return container.outerHTML;
+        }
+
+        function renderTeamChatView() { return renderGenericChat(teamChatMessages, 'team'); }
+        function renderParentChatView() { return renderGenericChat(parentChatMessages, 'parent'); }
+        
+        function renderMediaView() {
+            // Firestore write operation helper
+            async function handleMockUploadMedia(title, description) {
+                if (!db || !currentUserId || !title.trim()) return;
+                
+                const currentUserProfile = playersData.find(p => p.userId === currentUserId) || { name: 'Anonymous Fan' };
+                
+                // Generate a random placeholder image URL
+                const randomColor = Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                const imageUrl = `https://placehold.co/400x300/${randomColor}/ffffff?text=${title.substring(0, 15).replace(/ /g, '+')}`;
+
+                try {
+                    await addDoc(collection(db, FAN_MEDIA_COLLECTION), {
+                        title: title.trim(),
+                        description: description.trim() || 'No description provided.',
+                        imageUrl: imageUrl,
+                        userId: currentUserId,
+                        userName: currentUserProfile.name,
+                        timestamp: serverTimestamp(),
+                    });
+                } catch (error) {
+                    console.error("Error uploading mock media:", error);
+                }
+            }
+            
+            const container = document.createElement('div');
+            container.className = "p-4 sm:p-8 w-full max-w-6xl mx-auto";
+            
+            const currentUserProfile = playersData.find(p => p.userId === currentUserId) || { name: 'Anonymous Fan' };
+
+            container.innerHTML = `
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-blue-400 text-center mb-10 flex items-center justify-center">
+                    ${getIcon('image', 'w-8 h-8 inline-block mr-3')} Fan Media Gallery
+                </h1>
+                
+                <!-- Mock Upload Form -->
+                <div class="bg-gray-800 p-6 rounded-xl shadow-lg border-b-4 border-blue-600 mb-8 max-w-md mx-auto">
+                    <h2 class="text-xl font-semibold text-blue-300 mb-3">Share a Game Moment (Mock Upload)</h2>
+                    <input id="media-title" type="text" placeholder="Title (e.g., 'Goalie Save!')"
+                        class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 mb-3"
+                        maxlength="50"
+                    />
+                    <textarea id="media-description" placeholder="Short description..."
+                        class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 mb-4"
+                        rows="2"
+                        maxlength="150"
+                    ></textarea>
+                    <button id="mock-upload-btn"
+                        class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center"
+                        disabled
+                    >
+                        ${getIcon('upload', 'w-5 h-5 mr-2')} Upload Mock Photo
+                    </button>
+                    <p class="text-xs text-gray-400 mt-2 text-center">
+                        Uploads are mock, generating a placeholder image for ${currentUserProfile.name}.
+                    </p>
+                </div>
+
+                <!-- Media Gallery -->
+                <h2 class="text-2xl font-bold text-gray-300 mb-4 flex items-center justify-between border-b border-gray-700 pb-2">
+                    Latest Shared Moments
+                    <span class="text-sm text-gray-500 font-normal">${fanMediaData.length} items shown</span>
+                </h2>
+                <div id="media-gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[60vh] overflow-y-auto pr-2">
+                    ${fanMediaData.length === 0 ? 
+                        `<p class="lg:col-span-3 text-center text-gray-500 py-10">Be the first to share a moment!</p>`
+                        : fanMediaData.map(media => `
+                            <div class="bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-700 hover:shadow-2xl transition duration-300">
+                                <img src="${media.imageUrl}" alt="${media.title}" class="w-full h-48 object-cover object-center"
+                                    onerror="this.onerror=null;this.src='https://placehold.co/400x300/4b5563/ffffff?text=Image+Error';"
+                                />
+                                <div class="p-4">
+                                    <h3 class="text-lg font-semibold text-white truncate mb-1">${media.title}</h3>
+                                    <p class="text-sm text-gray-400 mb-2 line-clamp-2">${media.description}</p>
+                                    <p class="text-xs text-gray-500">
+                                        Shared by: <span class="font-medium text-blue-300">${media.userName}</span> on ${formatDate(media.timestamp)}
+                                    </p>
+                                </div>
+                            </div>
+                        `).join('')
+                    }
+                </div>
+            `;
+            
+            const titleInput = container.querySelector('#media-title');
+            const descInput = container.querySelector('#media-description');
+            const uploadBtn = container.querySelector('#mock-upload-btn');
+            
+            const checkForm = () => {
+                uploadBtn.disabled = titleInput.value.trim().length === 0;
+            };
+            titleInput.oninput = checkForm;
+            descInput.oninput = checkForm;
+
+            uploadBtn.onclick = async () => {
+                uploadBtn.textContent = 'Uploading...';
+                uploadBtn.disabled = true;
+                await handleMockUploadMedia(titleInput.value, descInput.value);
+                titleInput.value = '';
+                descInput.value = '';
+                uploadBtn.textContent = 'Upload Mock Photo';
+                checkForm(); // Re-check state which should disable the button
+            };
+
+            return container.outerHTML;
+        }
+
+        function renderCalendarView() {
+             // Firestore write operation helper
+            async function handleRsvp(eventId, status) {
+                if (!db || !currentUserId || !eventId) return;
+                const eventDocRef = doc(db, EVENTS_COLLECTION, eventId);
+                
+                try {
+                    const updateObject = {};
+                    updateObject[`rsvps.${currentUserId}`] = status;
+
+                    await updateDoc(eventDocRef, updateObject);
+                } catch (error) {
+                    console.error("Error updating RSVP:", error);
+                }
+            }
+            
+            async function handleSaveEvent(eventData, eventId = null) {
+                if (!db || !currentUserId) return;
+                try {
+                    if (eventId) {
+                        const docRef = doc(db, EVENTS_COLLECTION, eventId);
+                        await updateDoc(docRef, eventData);
+                    } else {
+                        await addDoc(collection(db, EVENTS_COLLECTION), { ...eventData, rsvps: {} });
+                    }
+                } catch (error) {
+                    console.error("Error saving event:", error);
+                }
+            }
+            
+            async function handleDeleteEvent(eventId) {
+                if (!db || !eventId || !adminIds.includes(currentUserId)) return;
+                try {
+                    await deleteDoc(doc(db, EVENTS_COLLECTION, eventId));
+                } catch (error) {
+                    console.error("Error deleting event:", error);
+                }
+            }
+            
+            const container = document.createElement('div');
+            container.className = "p-4 sm:p-8 w-full max-w-4xl mx-auto";
+            const isAdmin = adminIds.includes(currentUserId);
+            
+            // Function to render RSVP options for a single event
+            const renderRsvpOptions = (event) => {
+                const currentStatus = event.rsvps ? event.rsvps[currentUserId] : '';
+                const counts = getRsvpCounts(event.rsvps);
+                
+                const buttons = [
+                    { status: 'attending', text: 'I\'m In', icon: 'thumbs-up', color: 'bg-emerald-600', count: counts.attending },
+                    { status: 'maybe', text: 'Maybe', icon: 'help-circle', color: 'bg-yellow-600', count: counts.maybe },
+                    { status: 'not_attending', text: 'Out', icon: 'thumbs-down', color: 'bg-red-600', count: counts.not_attending },
+                ];
+
+                // Use a proxy function to pass to onclick for global access
+                window.handleEventRsvp = (id, status) => handleRsvp(id, status);
+                window.handleEventDelete = (id) => handleDeleteEvent(id);
+
+                const rsvpButtonsHtml = buttons.map(btn => `
+                    <button onclick="handleEventRsvp('${event.id}', '${btn.status}')"
+                        class="flex-1 px-2 py-2 text-sm font-semibold rounded-lg text-white transition transform hover:scale-[1.03] 
+                        ${currentStatus === btn.status ? `${btn.color} rsvp-button-selected text-gray-900 font-extrabold` : `${btn.color}/80 hover:${btn.color}`}
+                    ">
+                        ${getIcon(btn.icon, 'w-4 h-4 mr-1 inline-block')} ${btn.text} (${btn.count})
+                    </button>
+                `).join('');
+                
+                // Admin RSVP Summary
+                const summaryHtml = isAdmin ? `
+                    <div class="mt-3 pt-2 border-t border-gray-700 text-sm flex justify-between font-mono text-gray-400">
+                        <span>Total RSVPs: ${counts.attending + counts.not_attending + counts.maybe}</span>
+                        <button onclick="handleEventDelete('${event.id}')" class="text-red-500 hover:text-red-400 flex items-center">
+                            ${getIcon('trash-2', 'w-4 h-4 mr-1')} Delete
+                        </button>
+                    </div>
+                ` : `<p class="mt-2 text-sm text-gray-500">Set your availability above!</p>`;
+
+
+                return `
+                    <div class="flex space-x-2">
+                        ${rsvpButtonsHtml}
+                    </div>
+                    ${summaryHtml}
+                `;
+            };
+
+            const eventsListHtml = eventsData.length === 0 ? 
+                `<p class="text-center text-gray-500 py-10">No events scheduled. Check back later!</p>`
+                : eventsData.map(event => `
+                    <div class="bg-gray-800 p-5 rounded-xl shadow-lg border-l-4 border-amber-500 mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xl font-bold text-gray-100">${event.title}</h3>
+                            <span class="text-xs font-medium text-black bg-amber-400 px-3 py-1 rounded-full">${event.time}</span>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-3">${getIcon('calendar', 'w-4 h-4 mr-1 inline-block')} ${event.date}</p>
+                        <p class="text-sm text-gray-400 mb-4">${getIcon('map-pin', 'w-4 h-4 mr-1 inline-block')} ${event.location}</p>
+                        
+                        ${renderRsvpOptions(event)}
+                    </div>
+                `).join('');
+
+
+            // Admin Event Creation Form
+            const adminFormHtml = isAdmin ? `
+                <div class="mt-12 p-6 bg-red-900/40 border-2 border-red-500 rounded-xl shadow-2xl">
+                    <h2 class="text-2xl font-bold text-red-300 mb-4 flex items-center">
+                        ${getIcon('calendar-plus', 'w-6 h-6 mr-2')} Schedule New Event
+                    </h2>
+                    <input id="new-event-title" type="text" placeholder="Event Title (e.g., Game vs. Titans)" class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-red-500 focus:border-red-500 placeholder-gray-500 mb-3" />
+                    <div class="flex space-x-3 mb-3">
+                        <input id="new-event-date" type="date" class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-red-500 focus:border-red-500 placeholder-gray-500" />
+                        <input id="new-event-time" type="time" class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-red-500 focus:border-red-500 placeholder-gray-500" />
+                    </div>
+                    <input id="new-event-location" type="text" placeholder="Location" class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-red-500 focus:border-red-500 placeholder-gray-500 mb-4" />
+                    <button id="add-event-btn"
+                        class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center"
+                        disabled
+                    >
+                        ${getIcon('plus', 'w-5 h-5 mr-2')} Add Event to Calendar
+                    </button>
+                </div>
+            ` : '';
+
+
+            container.innerHTML = `
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-amber-400 text-center mb-10 flex items-center justify-center">
+                    ${getIcon('calendar-check', 'w-8 h-8 inline-block mr-3')} Team Calendar & RSVPs
+                </h1>
+                
+                <div id="events-list">
+                    ${eventsListHtml}
+                </div>
+                
+                ${adminFormHtml}
+            `;
+            
+            // Admin form logic
+            if (isAdmin) {
+                const title = container.querySelector('#new-event-title');
+                const date = container.querySelector('#new-event-date');
+                const time = container.querySelector('#new-event-time');
+                const location = container.querySelector('#new-event-location');
+                const addBtn = container.querySelector('#add-event-btn');
+                
+                window.handleEventSave = (data) => handleSaveEvent(data); // Proxy for global access
+
+                const checkForm = () => {
+                    addBtn.disabled = !(title.value.trim() && date.value.trim() && time.value.trim() && location.value.trim());
+                };
+                title.oninput = checkForm;
+                date.onchange = checkForm;
+                time.onchange = checkForm;
+                location.oninput = checkForm;
+
+                addBtn.onclick = async () => {
+                    addBtn.textContent = 'Adding...';
+                    addBtn.disabled = true;
+                    await handleEventSave({
+                        title: title.value.trim(),
+                        date: date.value.trim(),
+                        time: time.value.trim(),
+                        location: location.value.trim(),
+                    });
+                    title.value = '';
+                    date.value = '';
+                    time.value = '';
+                    location.value = '';
+                    addBtn.textContent = 'Add Event to Calendar';
+                    checkForm();
+                };
+            }
+
+
+            return container.outerHTML;
+        }
+
+        function renderUpcomingEvents() {
+            if (eventsData.length === 0) {
+                return '<p class="text-gray-600 text-center py-4">No upcoming events scheduled.</p>';
+            }
+            
+            // Show only the next 3 events
+            const nextThreeEvents = eventsData.slice(0, 3);
+
+            const eventsHtml = nextThreeEvents.map(event => {
+                const counts = getRsvpCounts(event.rsvps);
+                return `
+                    <div class="flex items-start space-x-4 p-4 border-b border-gray-700 last:border-b-0">
+                        <div class="flex-shrink-0 pt-1">
+                            ${getIcon('calendar', 'w-6 h-6 text-amber-500')}
+                        </div>
+                        <div class="flex-grow">
+                            <p class="font-semibold text-gray-200">${event.title}</p>
+                            <p class="text-sm text-gray-400">${event.date} @ ${event.time}</p>
+                        </div>
+                        <div class="flex-shrink-0 text-right">
+                            <span class="text-xs font-medium text-black bg-emerald-400 px-2 py-0.5 rounded-full">${counts.attending} Attending</span>
+                            <p class="text-xs text-gray-500 mt-1">${counts.not_attending} Out</p>
+                        </div>
+                    </div>
+                `}).join('');
+
+            return `
+                <div class="bg-gray-800 p-4 rounded-xl shadow-lg border-b-4 border-amber-500">
+                    <h2 class="text-2xl font-bold text-amber-400 mb-3 flex items-center">
+                        ${getIcon('calendar-check', 'w-6 h-6 mr-2')} Next 3 Events
+                    </h2>
+                    <div class="divide-y divide-gray-700 max-h-80 overflow-y-auto">
+                        ${eventsHtml}
+                    </div>
+                    <button onclick="setView('calendar')" class="mt-4 w-full text-sm font-bold text-amber-500 hover:text-amber-400 transition">
+                        View Full Calendar & RSVP &rarr;
+                    </button>
+                </div>
+            `;
+        }
+        
+        function renderAdminPanel() {
+            // Admin Panel remains mostly the same, removed redundant function body here
+            // but the logic is included in the final file and its helpers
+            const isAdmin = adminIds.includes(currentUserId);
+            if (!isAdmin) return '';
+            
+            let newAdminIdInput = ''; 
+            
+            const panel = document.createElement('div');
+            panel.className = "mt-12 p-6 bg-red-900/40 border-2 border-red-500 rounded-xl shadow-2xl";
+            
+            // Simplified HTML generation for Admin Panel
+            panel.innerHTML = `
+                <h2 class="text-2xl font-bold text-red-300 mb-4 flex items-center">
+                    ${getIcon('shield-alert', 'w-6 h-6 mr-2')}
+                    Admin Console (Back Office)
+                </h2>
+                <p class="text-red-200 mb-4">
+                    You are currently an Administrator. You can manage which User IDs have admin access here.
+                </p>
+                
+                <div class="mb-6">
+                    <h3 class="text-xl font-semibold text-white mb-2 flex items-center">
+                        ${getIcon('users', 'w-5 h-5 mr-2')}
+                        Current Administrators
+                    </h3>
+                    <div id="admin-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                        ${adminIds.map(id => {
+                            const isAdminSelf = id === currentUserId;
+                            return `
+                                <div class="flex justify-between items-center bg-gray-800 p-2 rounded-lg text-sm font-mono break-all">
+                                    <span class="${isAdminSelf ? "text-yellow-400 font-bold" : "text-gray-300"}">
+                                        ${id} ${isAdminSelf ? '(You)' : ''}
+                                    </span>
+                                    ${!isAdminSelf ? `
+                                        <button id="remove-admin-${id}" 
+                                            class="p-1 bg-red-600 hover:bg-red-700 rounded text-white transition disabled:opacity-50"
+                                            aria-label="Remove Admin"
+                                        >
+                                            ${getIcon('trash-2', 'w-4 h-4')}
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-red-800">
+                    <h3 class="text-xl font-semibold text-white mb-2">Add New Admin</h3>
+                    <div class="flex space-x-2">
+                        <input id="new-admin-id" type="text" placeholder="Paste User ID to promote" value=""
+                            class="flex-grow p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-amber-500 focus:border-amber-500 placeholder-gray-500"
+                        />
+                        <button id="add-admin-btn"
+                            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center"
+                            disabled
+                        >
+                            ${getIcon('plus', 'w-4 h-4 mr-1')} Add
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Admin logic for adding/removing
+            adminIds.forEach(id => {
+                if (id !== currentUserId) {
+                    panel.querySelector(`#remove-admin-${id}`).onclick = () => handleRemoveAdmin(id);
+                }
+            });
+            
+            const inputEl = panel.querySelector('#new-admin-id');
+            const buttonEl = panel.querySelector('#add-admin-btn');
+
+            inputEl.oninput = () => {
+                newAdminIdInput = inputEl.value.trim();
+                const isDisabled = !newAdminIdInput || adminIds.includes(newAdminIdInput);
+                buttonEl.disabled = isDisabled;
+            };
+
+            buttonEl.onclick = async () => {
+                await handleAddAdmin(newAdminIdInput);
+                inputEl.value = '';
+                buttonEl.disabled = true;
+            };
+
+            return panel.outerHTML;
+        }
+
         async function handleAddAdmin(id) {
             const settingsDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
             if (!settingsDocRef || !id) return;
@@ -258,7 +1080,7 @@
                 console.error("Error removing admin:", error);
             }
         }
-
+        
         async function handleSaveCoachMessage(newMessage) {
             const settingsDocRef = doc(db, TEAM_SETTINGS_DOC_PATH, HUB_DOC_ID);
             if (!settingsDocRef || newMessage.trim().length === 0) return;
@@ -273,123 +1095,50 @@
                 console.error("Error updating coach's message:", error);
             }
         }
+
+        async function handlePostMessage(message, chatType = 'team') {
+            if (!db || !currentUserId || !message.trim()) return;
+            
+            const collectionPath = chatType === 'team' ? TEAM_CHAT_COLLECTION : PARENT_CHAT_COLLECTION;
+            const currentUserProfile = playersData.find(p => p.userId === currentUserId) || { name: 'Anonymous User' };
+
+            try {
+                await addDoc(collection(db, collectionPath), {
+                    userId: currentUserId,
+                    userName: currentUserProfile.name,
+                    message: message.trim(),
+                    timestamp: serverTimestamp(),
+                });
+            } catch (error) {
+                console.error(`Error posting ${chatType} chat message:`, error);
+            }
+        }
         
-        // --- HELPER FUNCTIONS FOR UI ---
-        function getIcon(name, classes) {
-            // Using Lucide Icons via their global script for simplicity
-            return `<i data-lucide="${name}" class="${classes}"></i>`;
-        }
-
-        // --- COMPONENT RENDERING FUNCTIONS ---
-        function renderAdminPanel() {
-            const isAdmin = adminIds.includes(currentUserId);
-            if (!isAdmin) return '';
-            
-            let newAdminIdInput = ''; // Simple local state for the input
-            
-            const panel = document.createElement('div');
-            panel.className = "mt-12 p-6 bg-red-900/40 border-2 border-red-500 rounded-xl shadow-2xl";
-            
-            panel.innerHTML = `
-                <h2 class="text-2xl font-bold text-red-300 mb-4 flex items-center">
-                    ${getIcon('shield-alert', 'w-6 h-6 mr-2')}
-                    Admin Console (Back Office)
-                </h2>
-                <p class="text-red-200 mb-4">
-                    You are currently an Administrator. You can manage which User IDs have admin access here.
-                </p>
-                
-                <div class="mb-6">
-                    <h3 class="text-xl font-semibold text-white mb-2 flex items-center">
-                        ${getIcon('users', 'w-5 h-5 mr-2')}
-                        Current Administrators
-                    </h3>
-                    <div id="admin-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
-                        <!-- Admins inserted here -->
-                    </div>
-                </div>
-
-                <div class="pt-4 border-t border-red-800">
-                    <h3 class="text-xl font-semibold text-white mb-2">Add New Admin</h3>
-                    <div class="flex space-x-2">
-                        <input id="new-admin-id" type="text" placeholder="Paste User ID to promote" value=""
-                            class="flex-grow p-2 rounded-lg bg-gray-800 text-white border border-gray-700 focus:ring-red-500 focus:border-red-500 placeholder-gray-500"
-                        />
-                        <button id="add-admin-btn"
-                            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center"
-                            disabled
-                        >
-                            ${getIcon('plus', 'w-4 h-4 mr-1')} Add
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            // Populate Admin List
-            const adminListEl = panel.querySelector('#admin-list');
-            adminIds.forEach(id => {
-                const isAdminSelf = id === currentUserId;
-                const adminDiv = document.createElement('div');
-                adminDiv.className = "flex justify-between items-center bg-gray-800 p-2 rounded-lg text-sm font-mono break-all";
-                adminDiv.innerHTML = `
-                    <span class="${isAdminSelf ? "text-yellow-400 font-bold" : "text-gray-300"}">
-                        ${id} ${isAdminSelf ? '(You)' : ''}
-                    </span>
-                `;
-                if (!isAdminSelf) {
-                    const removeBtn = document.createElement('button');
-                    removeBtn.className = "p-1 bg-red-600 hover:bg-red-700 rounded text-white transition disabled:opacity-50";
-                    removeBtn.innerHTML = getIcon('trash-2', 'w-4 h-4');
-                    removeBtn.onclick = () => handleRemoveAdmin(id);
-                    adminDiv.appendChild(removeBtn);
-                }
-                adminListEl.appendChild(adminDiv);
-            });
-            
-            // Setup Input/Button interactivity
-            const inputEl = panel.querySelector('#new-admin-id');
-            const buttonEl = panel.querySelector('#add-admin-btn');
-
-            inputEl.oninput = () => {
-                newAdminIdInput = inputEl.value.trim();
-                const isDisabled = !newAdminIdInput || adminIds.includes(newAdminIdInput);
-                buttonEl.disabled = isDisabled;
-            };
-
-            buttonEl.onclick = async () => {
-                await handleAddAdmin(newAdminIdInput);
-                inputEl.value = '';
-                buttonEl.disabled = true;
-            };
-
-            return panel.outerHTML;
-        }
-
         function renderCoachMessageEditor() {
             const isAdmin = adminIds.includes(currentUserId);
             const editorDiv = document.createElement('div');
-            editorDiv.className = "md:col-span-2 bg-yellow-50 p-6 rounded-xl shadow-md border-b-4 border-yellow-400";
+            editorDiv.className = "md:col-span-2 bg-amber-900/40 p-6 rounded-xl shadow-md border-b-4 border-amber-500";
 
             editorDiv.innerHTML = `
-                <h2 class="text-2xl font-bold text-yellow-800 mb-3 border-b border-yellow-200 pb-2 flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-amber-300 mb-3 border-b border-amber-700 pb-2 flex justify-between items-center">
                     Coach's Corner
                 </h2>
                 <textarea
                     id="coach-message-textarea"
-                    class="w-full p-3 rounded-lg border-2 text-gray-800 transition ${isAdmin ? 'border-yellow-400 focus:ring-yellow-500' : 'border-gray-200 bg-gray-50'}"
+                    class="w-full p-3 rounded-lg border-2 text-gray-200 transition ${isAdmin ? 'border-amber-500 focus:ring-amber-500 bg-gray-800' : 'border-gray-700 bg-gray-900'}"
                     rows="4"
                     ${!isAdmin ? 'readonly' : ''}
                 >${hubData.coachsMessage || ''}</textarea>
                 
                 ${isAdmin ? `
                     <button id="save-message-btn"
-                        class="mt-4 bg-yellow-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-yellow-700 transition text-sm disabled:opacity-50"
+                        class="mt-4 bg-amber-600 text-gray-900 py-2 px-4 rounded-lg font-bold hover:bg-amber-500 transition text-sm disabled:opacity-50"
                         disabled
                     >
                         Save Message
                     </button>
                 ` : `
-                    <p class="mt-2 text-sm text-yellow-700 font-medium">Only Administrators can edit this message.</p>
+                    <p class="mt-2 text-sm text-amber-400 font-medium">Only Administrators can edit this message.</p>
                 `}
             `;
 
@@ -419,45 +1168,46 @@
             container.className = "max-w-4xl mx-auto p-4 sm:p-8";
 
             container.innerHTML = `
-                <h1 class="text-3xl sm:text-4xl font-extrabold text-white text-center mb-10">
-                    Team Hub Dashboard
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-amber-400 text-center mb-10 flex items-center justify-center">
+                    <img src="logo.jpg" alt="Ballerheads Team Logo" class="w-12 h-12 sm:w-16 sm:h-16 mr-3 object-contain">
+                    Ballerheads Locker Room
                 </h1>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                     <!-- Card 1: Next Game -->
-                    <div class="bg-indigo-50 p-6 rounded-xl shadow-lg border-b-4 border-indigo-400">
-                        <h2 class="text-2xl font-bold text-indigo-800 mb-3">Next Matchup</h2>
-                        <p class="text-gray-700 mb-2">
-                            <span class="font-medium">Opponent:</span> <span class="font-bold text-indigo-700">${hubData.opponent || INITIAL_HUB_DATA.opponent}</span>
+                    <div class="bg-gray-800 p-6 rounded-xl shadow-lg border-b-4 border-amber-500">
+                        <h2 class="text-2xl font-bold text-amber-400 mb-3">Next Matchup</h2>
+                        <p class="text-gray-200 mb-2">
+                            <span class="font-medium">Opponent:</span> <span class="font-bold text-amber-500">${hubData.opponent || INITIAL_HUB_DATA.opponent}</span>
                         </p>
-                        <p class="text-gray-700 mb-4">
-                            <span class="font-medium">Date & Time:</span> <span class="font-bold text-indigo-700">${hubData.dateTime || INITIAL_HUB_DATA.dateTime}</span>
+                        <p class="text-gray-200 mb-4">
+                            <span class="font-medium">Date & Time:</span> <span class="font-bold text-amber-500">${hubData.dateTime || INITIAL_HUB_DATA.dateTime}</span>
                         </p>
-                        <button class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700 transition">
-                            View Full Schedule (Future Feature)
+                        <button class="w-full bg-amber-600 text-gray-900 py-2 rounded-lg font-bold hover:bg-amber-500 transition">
+                            View Game Details
                         </button>
                     </div>
 
                     <!-- Card 2: Team Roster Snapshot -->
-                    <div class="bg-green-50 p-6 rounded-xl shadow-lg border-b-4 border-green-400">
-                        <h2 class="text-2xl font-bold text-green-800 mb-3">Roster Snapshot</h2>
-                        <ul class="text-gray-700 space-y-2">
+                    <div class="bg-gray-800 p-6 rounded-xl shadow-lg border-b-4 border-amber-500">
+                        <h2 class="text-2xl font-bold text-amber-400 mb-3">Roster Snapshot</h2>
+                        <ul class="text-gray-200 space-y-2">
                             <li class="flex justify-between">
                                 <span class='font-medium'>Total Players:</span> 
-                                <span class="font-bold text-green-600">${playersData.length}</span>
+                                <span class="font-bold text-amber-400">${playersData.length}</span>
                             </li>
                             <li class="flex justify-between">
                                 <span class='font-medium'>Admins:</span> 
-                                <span class="font-bold text-green-600">${adminIds.length}</span>
+                                <span class="font-bold text-amber-400">${adminIds.length}</span>
                             </li>
                             <li class="flex justify-between">
                                 <span class='font-medium'>Jersey Color:</span> 
-                                <span class="font-bold text-green-600">${hubData.jerseyColor || INITIAL_HUB_DATA.jerseyColor}</span>
+                                <span class="font-bold text-amber-400">${hubData.jerseyColor || INITIAL_HUB_DATA.jerseyColor}</span>
                             </li>
                         </ul>
-                        <button id="go-to-roster-btn"
-                            class="mt-4 w-full bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition"
+                        <button onclick="setView('roster')"
+                            class="mt-4 w-full bg-amber-600 text-gray-900 py-2 rounded-lg font-bold hover:bg-amber-500 transition"
                         >
                             Go to Roster
                         </button>
@@ -465,67 +1215,36 @@
                     
                     ${renderCoachMessageEditor()}
                 </div>
+                
+                <div class="mt-8">
+                    ${renderUpcomingEvents()}
+                </div>
             `;
             
-            container.querySelector('#go-to-roster-btn').onclick = () => setView('roster');
             container.insertAdjacentHTML('beforeend', renderAdminPanel());
             
             return container.outerHTML;
         }
-
-        function renderPlayerCard(player) {
-            const card = document.createElement('div');
-            card.className = "flex items-center p-4 bg-white/10 rounded-xl shadow-lg transition duration-300 ease-in-out hover:bg-white/20";
-            
-            card.innerHTML = `
-                <div class="w-16 h-16 mr-4 bg-gray-200 rounded-full overflow-hidden flex-shrink-0">
-                    <img
-                        src="${player.headshotUrl}"
-                        alt="${player.name}"
-                        class="object-cover w-full h-full"
-                        onerror="this.onerror=null;this.src='https://placehold.co/100x100/cccccc/000000?text=ERR';"
-                    />
-                </div>
-                <div class="flex-grow">
-                    <h3 class="text-lg font-semibold text-white truncate">${player.name}</h3>
-                    <p class="text-sm text-blue-300">
-                        #${player.jerseyNumber} - ${player.role}
-                        ${adminIds.includes(player.userId) ? `<span class="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">ADMIN</span>` : ''}
-                    </p>
-                </div>
-                <!-- The responsive water bottle icon -->
-                <button
-                    class="ml-4 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition duration-150 ease-in-out shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    aria-label="View details for ${player.name}"
-                >
-                    ${getIcon('glass-water', 'w-6 h-6 sm:w-8 sm:h-8')}
-                </button>
-            `;
-            
-            card.querySelector('button').onclick = () => openDetail(player);
-
-            return card.outerHTML;
-        }
-
+        
         function renderRosterList() {
-            const container = document.createElement('div');
+             const container = document.createElement('div');
             container.className = "p-4 sm:p-8 w-full max-w-4xl mx-auto";
 
             container.innerHTML = `
                 <div class="flex justify-between items-center mb-6">
-                    <h1 class="text-3xl sm:text-4xl font-extrabold text-white">
-                        Active Player Roster
+                    <h1 class="text-3xl sm:text-4xl font-extrabold text-amber-400">
+                        Ballerheads Roster
                     </h1>
                     <button id="sign-out-btn"
-                        class="flex items-center text-sm font-semibold text-gray-400 hover:text-white transition"
+                        class="flex items-center text-sm font-semibold text-gray-400 hover:text-amber-400 transition"
                         aria-label="Sign Out"
                     >
                         Sign Out ${getIcon('log-out', 'w-4 h-4 ml-1')}
                     </button>
                 </div>
                 
-                <p class="text-blue-300 mb-6 text-center">
-                    Your User ID (for Admin Access): <span class="font-mono bg-white/10 p-1 rounded text-sm break-all">${currentUserId}</span>
+                <p class="text-gray-400 mb-6 text-center">
+                    Your User ID (for Admin Access): <span class="font-mono bg-gray-800 p-1 rounded text-sm break-all text-gray-200">${currentUserId}</span>
                 </p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="player-list">
@@ -537,7 +1256,7 @@
 
             const playerListEl = container.querySelector('#player-list');
             if (playersData.length === 0) {
-                playerListEl.innerHTML = `<div class="md:col-span-2 flex justify-center items-center p-8">${getIcon('refresh-cw', 'animate-spin rounded-full h-12 w-12 border-b-2 border-white')} <p class="ml-4">Loading roster...</p></div>`;
+                playerListEl.innerHTML = `<div class="md:col-span-2 flex justify-center items-center p-8">${getIcon('refresh-cw', 'animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 text-gray-950')} <p class="ml-4 text-gray-400">Loading roster...</p></div>`;
             } else {
                 playersData.forEach(player => {
                     playerListEl.insertAdjacentHTML('beforeend', renderPlayerCard(player));
@@ -547,13 +1266,46 @@
             return container.outerHTML;
         }
 
+        function renderPlayerCard(player) {
+            const card = document.createElement('div');
+            card.className = "flex items-center p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 ease-in-out hover:bg-gray-700 cursor-pointer";
+            
+            card.innerHTML = `
+                <div class="w-16 h-16 mr-4 bg-gray-700 rounded-full overflow-hidden flex-shrink-0">
+                    <img
+                        src="${player.headshotUrl}"
+                        alt="${player.name}"
+                        class="object-cover w-full h-full"
+                        onerror="this.onerror=null;this.src='https://placehold.co/100x100/374151/D1D5DB?text=ERR';"
+                    />
+                </div>
+                <div class="flex-grow">
+                    <h3 class="text-lg font-semibold text-gray-100 truncate">${player.name}</h3>
+                    <p class="text-sm text-amber-400">
+                        #${player.jerseyNumber} - ${player.role}
+                        ${adminIds.includes(player.userId) ? `<span class="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">ADMIN</span>` : ''}
+                    </p>
+                </div>
+                <button
+                    class="ml-4 p-2 bg-amber-600 hover:bg-amber-500 text-gray-900 rounded-full transition duration-150 ease-in-out shadow-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    aria-label="View details for ${player.name}"
+                >
+                    ${getIcon('glass-water', 'w-6 h-6 sm:w-8 sm:h-8')}
+                </button>
+            `;
+            
+            card.onclick = () => openDetail(player);
+            card.querySelector('button').onclick = (e) => { e.stopPropagation(); openDetail(player); };
+
+            return card.outerHTML;
+        }
+
         function renderPlayerDetail() {
             const player = selectedPlayer;
             if (!player) return '';
 
             const isCurrentUser = player.userId === currentUserId;
             
-            // Local state for profile inputs
             let jerseyInput = player.jerseyNumber;
             let nameInput = player.name;
 
@@ -562,93 +1314,88 @@
 
             container.innerHTML = `
                 <button id="back-to-roster"
-                    class="text-blue-300 hover:text-white mb-6 flex items-center transition"
+                    class="text-amber-400 hover:text-white mb-6 flex items-center transition"
                 >
                     &larr; Back to Roster
                 </button>
 
-                <div class="bg-white/10 p-6 sm:p-8 rounded-2xl shadow-2xl backdrop-blur-sm">
+                <div class="bg-gray-800 p-6 sm:p-8 rounded-2xl shadow-2xl backdrop-blur-sm border-t-4 border-amber-500">
                     <div class="flex flex-col items-center">
-                        <!-- Player Headshot -->
-                        <div class="relative w-32 h-32 mb-4 bg-gray-700 rounded-full overflow-hidden border-4 border-blue-500 shadow-xl">
+                        <div class="relative w-32 h-32 mb-4 bg-gray-700 rounded-full overflow-hidden border-4 border-amber-500 shadow-xl">
                             <img id="player-headshot"
                                 src="${player.headshotUrl}"
                                 alt="${player.name}"
                                 class="object-cover w-full h-full"
-                                onerror="this.onerror=null;this.src='https://placehold.co/128x128/cccccc/000000?text=ERR';"
+                                onerror="this.onerror=null;this.src='https://placehold.co/128x128/374151/D1D5DB?text=ERR';"
                             />
                         </div>
 
-                        <!-- Upload Photo Option -->
                         ${isCurrentUser ? `
                             <button id="upload-photo-btn"
-                                class="flex items-center bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-4 rounded-full transition duration-150 shadow-lg mb-6"
+                                class="flex items-center bg-amber-600 hover:bg-amber-500 text-gray-900 text-sm font-medium py-2 px-4 rounded-full transition duration-150 shadow-lg mb-6"
                             >
                                 ${getIcon('camera', 'w-4 h-4 mr-2')} Upload New Headshot (Mock)
                             </button>
                         ` : ''}
 
-                        <h2 class="text-3xl font-bold text-white">${player.name}</h2>
-                        <p class="text-xl text-blue-300 font-mono flex items-center mt-2">
+                        <h2 class="text-3xl font-bold text-amber-400">${player.name}</h2>
+                        <p class="text-xl text-gray-300 font-mono flex items-center mt-2">
                             Jersey: #${player.jerseyNumber}
                         </p>
                         <p class="text-sm text-gray-400 mt-1">Role: ${player.role}</p>
                     </div>
 
                     <div class="mt-8">
-                        <h3 class="text-xl font-semibold text-white mb-4 border-b border-white/20 pb-2">
-                            Communication Links
+                        <h3 class="text-xl font-semibold text-gray-200 mb-4 border-b border-gray-700 pb-2">
+                            Communication Links (Mock Connect)
                         </h3>
                         <div class="flex justify-around space-x-4">
-                            <a href="#dm-${player.userId}" class="flex flex-col items-center p-4 bg-blue-700 hover:bg-blue-800 rounded-xl transition duration-150 w-full text-white shadow-md hover:shadow-lg">
+                            <button id="dm-btn" class="flex flex-col items-center p-4 bg-violet-700 hover:bg-violet-800 rounded-xl transition duration-150 w-full text-white shadow-md hover:shadow-lg">
                                 ${getIcon('send', 'w-8 h-8 mb-2')}
                                 <span class="text-sm font-medium text-center">Direct Message</span>
-                            </a>
-                            <a href="#video-${player.userId}" class="flex flex-col items-center p-4 bg-red-600 hover:bg-red-700 rounded-xl transition duration-150 w-full text-white shadow-md hover:shadow-lg">
+                            </button>
+                            <button id="video-btn" class="flex flex-col items-center p-4 bg-blue-700 hover:bg-blue-800 rounded-xl transition duration-150 w-full text-white shadow-md hover:shadow-lg">
                                 ${getIcon('video', 'w-8 h-8 mb-2')}
                                 <span class="text-sm font-medium text-center">Private Video Chat</span>
-                            </a>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- User Self-Editor -->
                     ${isCurrentUser ? `
-                        <div class="mt-8 p-4 bg-white/10 rounded-xl">
-                            <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
-                                ${getIcon('shield-alert', 'w-5 h-5 mr-2 text-yellow-400')}
+                        <div class="mt-8 p-4 bg-gray-900 rounded-xl">
+                            <h3 class="text-lg font-semibold text-amber-400 mb-3 flex items-center">
+                                ${getIcon('edit', 'w-5 h-5 mr-2 text-amber-500')}
                                 Edit My Profile
                             </h3>
                             
-                            <!-- Name Field -->
                             <div class="flex space-x-3 items-end mb-4">
                                 <div class="flex-grow">
                                     <label for="playerName" class="block text-sm font-medium text-gray-300 mb-1">
                                         Display Name
                                     </label>
                                     <input id="playerName" type="text" value="${player.name}"
-                                        class="w-full p-2 rounded-lg bg-gray-800 text-white border border-gray-700 focus:ring-blue-500 focus:border-blue-500"
+                                        class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-amber-500 focus:border-amber-500"
                                     />
                                 </div>
                                 <button id="save-name-btn"
-                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition duration-150 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-900 rounded-lg transition duration-150 disabled:bg-gray-500 disabled:cursor-not-allowed"
                                     disabled
                                 >
                                     Save Name
                                 </button>
                             </div>
 
-                            <!-- Jersey Number Field -->
                             <div class="flex space-x-3 items-end">
                                 <div class="flex-grow">
                                     <label for="jerseyNumber" class="block text-sm font-medium text-gray-300 mb-1">
                                         Jersey Number (0-99)
                                     </label>
                                     <input id="jerseyNumber" type="number" min="0" max="99" value="${player.jerseyNumber}"
-                                        class="w-full p-2 rounded-lg bg-gray-800 text-white border border-gray-700 focus:ring-blue-500 focus:border-blue-500"
+                                        class="w-full p-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:ring-amber-500 focus:border-amber-500"
                                     />
                                 </div>
                                 <button id="save-jersey-btn"
-                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition duration-150 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-900 rounded-lg transition duration-150 disabled:bg-gray-500 disabled:cursor-not-allowed"
                                     disabled
                                 >
                                     Save #
@@ -660,8 +1407,25 @@
             `;
             
             container.querySelector('#back-to-roster').onclick = closeDetail;
+            
+            // Communication links functionality
+            container.querySelector('#dm-btn').onclick = () => setView('private_comms', { playerId: player.userId, type: 'DM' });
+            container.querySelector('#video-btn').onclick = () => setView('private_comms', { playerId: player.userId, type: 'PV' });
 
             if (isCurrentUser) {
+                const handleUpdateProfile = async (updates) => {
+                    if (!db || !currentUserId) return;
+                    try {
+                        const userDoc = playersData.find(p => p.userId === currentUserId);
+                        if (userDoc) {
+                            const docRef = doc(db, PLAYERS_COLLECTION, userDoc.id);
+                            await updateDoc(docRef, updates);
+                        }
+                    } catch (error) {
+                        console.error("Error updating profile:", error);
+                    }
+                };
+
                 const nameInputEl = container.querySelector('#playerName');
                 const saveNameBtn = container.querySelector('#save-name-btn');
                 const jerseyInputEl = container.querySelector('#jerseyNumber');
@@ -677,8 +1441,6 @@
                     saveNameBtn.textContent = 'Saving...';
                     saveNameBtn.disabled = true;
                     await handleUpdateProfile({ name: nameInput });
-                    selectedPlayer = { ...player, name: nameInput };
-                    renderApp(); // Re-render detail view with new name
                 };
                 
                 // Jersey logic
@@ -691,8 +1453,6 @@
                     saveJerseyBtn.textContent = 'Saving...';
                     saveJerseyBtn.disabled = true;
                     await handleUpdateProfile({ jerseyNumber: jerseyInput });
-                    selectedPlayer = { ...player, jerseyNumber: jerseyInput };
-                    renderApp(); // Re-render detail view with new number
                 };
 
                 // Photo upload logic (Mock)
@@ -701,8 +1461,6 @@
                     uploadPhotoBtn.disabled = true;
                     const newPhotoUrl = `https://placehold.co/100x100/${Math.floor(Math.random()*16777215).toString(16)}/ffffff?text=${player.name.substring(0, 2)}`;
                     await handleUpdateProfile({ headshotUrl: newPhotoUrl });
-                    selectedPlayer = { ...player, headshotUrl: newPhotoUrl };
-                    renderApp(); // Re-render detail view with new photo
                 };
             }
 
@@ -716,12 +1474,11 @@
             let contentHTML = '';
 
             if (!isAppReady) {
-                // Keep showing loading screen if not ready
                 contentHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+                    <div class="min-h-screen flex items-center justify-center bg-gray-950 text-gray-200">
                         <div class="flex items-center">
-                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-                            <p class="ml-4">Loading application and authenticating user...</p>
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
+                            <p class="ml-4">Locker Room doors opening...</p>
                         </div>
                     </div>
                 `;
@@ -732,25 +1489,58 @@
                     mainContent = renderPlayerDetail();
                 } else if (currentView === 'roster') {
                     mainContent = renderRosterList();
+                } else if (currentView === 'chat') {
+                    mainContent = renderTeamChatView();
+                } else if (currentView === 'parent_chat') {
+                    mainContent = renderParentChatView();
+                } else if (currentView === 'calendar') {
+                    mainContent = renderCalendarView(); 
+                } else if (currentView === 'media') {
+                    mainContent = renderMediaView(); 
+                } else if (currentView === 'private_comms') { // New Comms View
+                    mainContent = renderPrivateCommsView();
+                } else if (currentView === 'livestream') { // New Livestream View
+                    mainContent = renderLivestreamView();
                 } else {
                     mainContent = renderDashboardView();
                 }
 
+                // Main navigation bar
                 const nav = !isDetailOpen ? `
-                    <div class="flex justify-center space-x-4 mb-8">
+                    <div class="flex flex-wrap justify-center space-x-2 sm:space-x-4 mb-8">
                         <button onclick="setView('dashboard')"
-                            class="flex items-center px-6 py-3 rounded-full font-bold transition ${currentView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}">
-                            ${getIcon('layout-dashboard', 'w-5 h-5 mr-2')} Dashboard
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'dashboard' ? 'bg-amber-600 text-gray-900 shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base">
+                            ${getIcon('layout-dashboard', 'w-5 h-5 mr-1 sm:mr-2')} Dashboard
                         </button>
                         <button onclick="setView('roster')"
-                            class="flex items-center px-6 py-3 rounded-full font-bold transition ${currentView === 'roster' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}">
-                            ${getIcon('user', 'w-5 h-5 mr-2')} Roster
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'roster' ? 'bg-amber-600 text-gray-900 shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base">
+                            ${getIcon('users', 'w-5 h-5 mr-1 sm:mr-2')} Roster
+                        </button>
+                         <button onclick="setView('calendar')"
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'calendar' ? 'bg-amber-600 text-gray-900 shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base">
+                            ${getIcon('calendar', 'w-5 h-5 mr-1 sm:mr-2')} Calendar
+                        </button>
+                         <button onclick="setView('livestream')"
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'livestream' ? 'bg-red-600 text-white shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base mt-2 sm:mt-0">
+                            ${getIcon('radio', 'w-5 h-5 mr-1 sm:mr-2')} Live Game
+                        </button>
+                        <button onclick="setView('chat')"
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'chat' ? 'bg-amber-600 text-gray-900 shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base mt-2 sm:mt-0">
+                            ${getIcon('message-circle', 'w-5 h-5 mr-1 sm:mr-2')} Team Chat
+                        </button>
+                         <button onclick="setView('parent_chat')"
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'parent_chat' ? 'bg-violet-600 text-white shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base mt-2 sm:mt-0">
+                            ${getIcon('megaphone', 'w-5 h-5 mr-1 sm:mr-2')} Fan Chat
+                        </button>
+                        <button onclick="setView('media')"
+                            class="flex items-center px-4 sm:px-4 py-3 rounded-full font-bold transition ${currentView === 'media' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} text-sm sm:text-base mt-2 sm:mt-0">
+                            ${getIcon('image', 'w-5 h-5 mr-1 sm:mr-2')} Fan Media
                         </button>
                     </div>
                 ` : '';
 
                 contentHTML = `
-                    <div class="min-h-screen bg-gray-900 text-white font-sans p-4 sm:p-0">
+                    <div class="min-h-screen bg-gray-950 text-gray-200 font-sans p-4 sm:p-0">
                         <div class="max-w-7xl mx-auto pt-8 pb-16">
                             ${nav}
                             ${mainContent}
@@ -761,7 +1551,6 @@
 
             appRoot.innerHTML = contentHTML;
             
-            // Re-render Lucide icons after HTML insertion
             if (typeof lucide !== 'undefined') {
                 lucide.createIcons();
             }
